@@ -4,6 +4,8 @@ This modified version is **Based on StreamVault**, originally developed by
 **David Nashash (Davidona)**. It adds an app-scoped WireGuard VPN option under
 Settings → Privacy. See [WireGuard setup and build notes](docs/WIREGUARD.md).
 
+**Download the VPN build:** Open [StreamVault VPN APK builds](https://github.com/MerlinManch/StreamVault-VPN/actions/workflows/wireguard.yml), select a successful run and download the `StreamVault-VPN-debug` artifact. It contains the installable APK, its SHA-256 checksum and the source commit. The original StreamVault download links below refer to the upstream app without this extension.
+
 <p align="center">
 	<a href="https://github.com/Davidona/StreamVault-IPTV/releases/latest/download/StreamVault.apk"><img src="https://img.shields.io/badge/Download-StreamVault.apk-2ea44f?style=for-the-badge&logo=android" alt="Download StreamVault APK" /></a>
 	<a href="https://github.com/Davidona/StreamVault-IPTV/releases/latest"><img src="https://img.shields.io/github/v/release/Davidona/StreamVault-IPTV?display_name=tag&style=for-the-badge&color=0f766e" alt="Latest StreamVault release" /></a>
