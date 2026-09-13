@@ -1,0 +1,81 @@
+name: StreamVault VPN APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: streamvault-vpn-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Import pinned StreamVault source and WireGuard extension
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f app/build.gradle.kts ]; then
+            echo "Source is already present; building the checked-out commit."
+            exit 0
+          fi
+          SOURCE_COMMIT=f86d4aeef21de4524a986c4ae87ac5f58ac42d25
+          IMPORT_DIR="$RUNNER_TEMP/streamvault-upstream"
+          git init "$IMPORT_DIR"
+          git -C "$IMPORT_DIR" remote add origin https://github.com/Davidona/StreamVault-IPTV.git
+          git -C "$IMPORT_DIR" fetch --depth=1 origin "$SOURCE_COMMIT"
+          test "$(git -C "$IMPORT_DIR" rev-parse FETCH_HEAD)" = "$SOURCE_COMMIT"
+          git -C "$IMPORT_DIR" archive FETCH_HEAD | tar -x -C "$GITHUB_WORKSPACE"
+          git apply --check bootstrap/wireguard.patch
+          git apply bootstrap/wireguard.patch
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'Import StreamVault with app-scoped WireGuard VPN'
+          git push origin HEAD:main
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Android SDK
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+
+      - name: Test WireGuard configuration and build APK
+        run: ./gradlew --no-daemon --console=plain :app:testDebugUnitTest --tests 'com.streamvault.app.vpn.*' :app:assembleDebug
+
+      - name: Prepare APK
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/StreamVault-VPN-debug.apk
+          sha256sum dist/StreamVault-VPN-debug.apk > dist/StreamVault-VPN-debug.apk.sha256
+          git rev-parse HEAD > dist/source-commit.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StreamVault-VPN-debug
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: WireGuard-test-reports
+          path: app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: ignore
+          retention-days: 14

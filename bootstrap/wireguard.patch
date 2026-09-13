@@ -1,0 +1,1272 @@
+diff --git a/README.md b/README.md
+index c2742cf..9f0b1d4 100644
+--- a/README.md
++++ b/README.md
+@@ -1,5 +1,9 @@
+ # StreamVault
+ 
++This modified version is **Based on StreamVault**, originally developed by
++**David Nashash (Davidona)**. It adds an app-scoped WireGuard VPN option under
++Settings → Privacy. See [WireGuard setup and build notes](docs/WIREGUARD.md).
++
+ <p align="center">
+ 	<a href="https://github.com/Davidona/StreamVault-IPTV/releases/latest/download/StreamVault.apk"><img src="https://img.shields.io/badge/Download-StreamVault.apk-2ea44f?style=for-the-badge&logo=android" alt="Download StreamVault APK" /></a>
+ 	<a href="https://github.com/Davidona/StreamVault-IPTV/releases/latest"><img src="https://img.shields.io/github/v/release/Davidona/StreamVault-IPTV?display_name=tag&style=for-the-badge&color=0f766e" alt="Latest StreamVault release" /></a>
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index 8b9ddf5..76e87a1 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -209,6 +209,7 @@ dependencies {
+     implementation(libs.room.ktx)
+ 
+     // Networking
++    implementation(libs.wireguard.tunnel)
+     implementation(libs.retrofit)
+     implementation(libs.retrofit.gson)
+     implementation(libs.okhttp)
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index adf571d..26f70e4 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -12,6 +12,7 @@
+     <uses-permission android:name="android.permission.BIND_TV_INPUT" />
+     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
++    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+ 
+@@ -162,6 +163,28 @@
+             android:exported="false"
+             android:foregroundServiceType="dataSync" />
+ 
++        <service
++            android:name=".vpn.WireGuardForegroundService"
++            android:exported="false"
++            android:foregroundServiceType="specialUse">
++            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
++                android:value="User-initiated WireGuard VPN for StreamVault traffic" />
++        </service>
++        <service android:name="com.wireguard.android.backend.GoBackend$VpnService"
++            tools:node="remove" />
++        <service android:name=".vpn.WireGuardTunnelService"
++            android:permission="android.permission.BIND_VPN_SERVICE"
++            android:foregroundServiceType="specialUse"
++            android:exported="false">
++            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
++                android:value="User-initiated WireGuard VPN tunnel" />
++            <intent-filter>
++                <action android:name="android.net.VpnService" />
++            </intent-filter>
++            <meta-data android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON"
++                android:value="false" />
++        </service>
++
+         <meta-data
+             android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
+             android:value="com.streamvault.app.cast.StreamVaultCastOptionsProvider" />
+diff --git a/app/src/main/assets/licenses/wireguard-apache-2.0.txt b/app/src/main/assets/licenses/wireguard-apache-2.0.txt
+new file mode 100644
+index 0000000..de1c647
+--- /dev/null
++++ b/app/src/main/assets/licenses/wireguard-apache-2.0.txt
+@@ -0,0 +1,205 @@
++WireGuard Android Tunnel Library
++Copyright © 2017-2025 WireGuard LLC. All Rights Reserved.
++https://git.zx2c4.com/wireguard-android/about/
++
++                                 Apache License
++                           Version 2.0, January 2004
++                        http://www.apache.org/licenses/
++
++   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
++
++   1. Definitions.
++
++      "License" shall mean the terms and conditions for use, reproduction,
++      and distribution as defined by Sections 1 through 9 of this document.
++
++      "Licensor" shall mean the copyright owner or entity authorized by
++      the copyright owner that is granting the License.
++
++      "Legal Entity" shall mean the union of the acting entity and all
++      other entities that control, are controlled by, or are under common
++      control with that entity. For the purposes of this definition,
++      "control" means (i) the power, direct or indirect, to cause the
++      direction or management of such entity, whether by contract or
++      otherwise, or (ii) ownership of fifty percent (50%) or more of the
++      outstanding shares, or (iii) beneficial ownership of such entity.
++
++      "You" (or "Your") shall mean an individual or Legal Entity
++      exercising permissions granted by this License.
++
++      "Source" form shall mean the preferred form for making modifications,
++      including but not limited to software source code, documentation
++      source, and configuration files.
++
++      "Object" form shall mean any form resulting from mechanical
++      transformation or translation of a Source form, including but
++      not limited to compiled object code, generated documentation,
++      and conversions to other media types.
++
++      "Work" shall mean the work of authorship, whether in Source or
++      Object form, made available under the License, as indicated by a
++      copyright notice that is included in or attached to the work
++      (an example is provided in the Appendix below).
++
++      "Derivative Works" shall mean any work, whether in Source or Object
++      form, that is based on (or derived from) the Work and for which the
++      editorial revisions, annotations, elaborations, or other modifications
++      represent, as a whole, an original work of authorship. For the purposes
++      of this License, Derivative Works shall not include works that remain
++      separable from, or merely link (or bind by name) to the interfaces of,
++      the Work and Derivative Works thereof.
++
++      "Contribution" shall mean any work of authorship, including
++      the original version of the Work and any modifications or additions
++      to that Work or Derivative Works thereof, that is intentionally
++      submitted to Licensor for inclusion in the Work by the copyright owner
++      or by an individual or Legal Entity authorized to submit on behalf of
++      the copyright owner. For the purposes of this definition, "submitted"
++      means any form of electronic, verbal, or written communication sent
++      to the Licensor or its representatives, including but not limited to
++      communication on electronic mailing lists, source code control systems,
++      and issue tracking systems that are managed by, or on behalf of, the
++      Licensor for the purpose of discussing and improving the Work, but
++      excluding communication that is conspicuously marked or otherwise
++      designated in writing by the copyright owner as "Not a Contribution."
++
++      "Contributor" shall mean Licensor and any individual or Legal Entity
++      on behalf of whom a Contribution has been received by Licensor and
++      subsequently incorporated within the Work.
++
++   2. Grant of Copyright License. Subject to the terms and conditions of
++      this License, each Contributor hereby grants to You a perpetual,
++      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
++      copyright license to reproduce, prepare Derivative Works of,
++      publicly display, publicly perform, sublicense, and distribute the
++      Work and such Derivative Works in Source or Object form.
++
++   3. Grant of Patent License. Subject to the terms and conditions of
++      this License, each Contributor hereby grants to You a perpetual,
++      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
++      (except as stated in this section) patent license to make, have made,
++      use, offer to sell, sell, import, and otherwise transfer the Work,
++      where such license applies only to those patent claims licensable
++      by such Contributor that are necessarily infringed by their
++      Contribution(s) alone or by combination of their Contribution(s)
++      with the Work to which such Contribution(s) was submitted. If You
++      institute patent litigation against any entity (including a
++      cross-claim or counterclaim in a lawsuit) alleging that the Work
++      or a Contribution incorporated within the Work constitutes direct
++      or contributory patent infringement, then any patent licenses
++      granted to You under this License for that Work shall terminate
++      as of the date such litigation is filed.
++
++   4. Redistribution. You may reproduce and distribute copies of the
++      Work or Derivative Works thereof in any medium, with or without
++      modifications, and in Source or Object form, provided that You
++      meet the following conditions:
++
++      (a) You must give any other recipients of the Work or
++          Derivative Works a copy of this License; and
++
++      (b) You must cause any modified files to carry prominent notices
++          stating that You changed the files; and
++
++      (c) You must retain, in the Source form of any Derivative Works
++          that You distribute, all copyright, patent, trademark, and
++          attribution notices from the Source form of the Work,
++          excluding those notices that do not pertain to any part of
++          the Derivative Works; and
++
++      (d) If the Work includes a "NOTICE" text file as part of its
++          distribution, then any Derivative Works that You distribute must
++          include a readable copy of the attribution notices contained
++          within such NOTICE file, excluding those notices that do not
++          pertain to any part of the Derivative Works, in at least one
++          of the following places: within a NOTICE text file distributed
++          as part of the Derivative Works; within the Source form or
++          documentation, if provided along with the Derivative Works; or,
++          within a display generated by the Derivative Works, if and
++          wherever such third-party notices normally appear. The contents
++          of the NOTICE file are for informational purposes only and
++          do not modify the License. You may add Your own attribution
++          notices within Derivative Works that You distribute, alongside
++          or as an addendum to the NOTICE text from the Work, provided
++          that such additional attribution notices cannot be construed
++          as modifying the License.
++
++      You may add Your own copyright statement to Your modifications and
++      may provide additional or different license terms and conditions
++      for use, reproduction, or distribution of Your modifications, or
++      for any such Derivative Works as a whole, provided Your use,
++      reproduction, and distribution of the Work otherwise complies with
++      the conditions stated in this License.
++
++   5. Submission of Contributions. Unless You explicitly state otherwise,
++      any Contribution intentionally submitted for inclusion in the Work
++      by You to the Licensor shall be under the terms and conditions of
++      this License, without any additional terms or conditions.
++      Notwithstanding the above, nothing herein shall supersede or modify
++      the terms of any separate license agreement you may have executed
++      with Licensor regarding such Contributions.
++
++   6. Trademarks. This License does not grant permission to use the trade
++      names, trademarks, service marks, or product names of the Licensor,
++      except as required for reasonable and customary use in describing the
++      origin of the Work and reproducing the content of the NOTICE file.
++
++   7. Disclaimer of Warranty. Unless required by applicable law or
++      agreed to in writing, Licensor provides the Work (and each
++      Contributor provides its Contributions) on an "AS IS" BASIS,
++      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
++      implied, including, without limitation, any warranties or conditions
++      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
++      PARTICULAR PURPOSE. You are solely responsible for determining the
++      appropriateness of using or redistributing the Work and assume any
++      risks associated with Your exercise of permissions under this License.
++
++   8. Limitation of Liability. In no event and under no legal theory,
++      whether in tort (including negligence), contract, or otherwise,
++      unless required by applicable law (such as deliberate and grossly
++      negligent acts) or agreed to in writing, shall any Contributor be
++      liable to You for damages, including any direct, indirect, special,
++      incidental, or consequential damages of any character arising as a
++      result of this License or out of the use or inability to use the
++      Work (including but not limited to damages for loss of goodwill,
++      work stoppage, computer failure or malfunction, or any and all
++      other commercial damages or losses), even if such Contributor
++      has been advised of the possibility of such damages.
++
++   9. Accepting Warranty or Additional Liability. While redistributing
++      the Work or Derivative Works thereof, You may choose to offer,
++      and charge a fee for, acceptance of support, warranty, indemnity,
++      or other liability obligations and/or rights consistent with this
++      License. However, in accepting such obligations, You may act only
++      on Your own behalf and on Your sole responsibility, not on behalf
++      of any other Contributor, and only if You agree to indemnify,
++      defend, and hold each Contributor harmless for any liability
++      incurred by, or claims asserted against, such Contributor by reason
++      of your accepting any such warranty or additional liability.
++
++   END OF TERMS AND CONDITIONS
++
++   APPENDIX: How to apply the Apache License to your work.
++
++      To apply the Apache License to your work, attach the following
++      boilerplate notice, with the fields enclosed by brackets "[]"
++      replaced with your own identifying information. (Don't include
++      the brackets!)  The text should be enclosed in the appropriate
++      comment syntax for the file format. We also recommend that a
++      file or class name and description of purpose be included on the
++      same "printed page" as the copyright notice for easier
++      identification within third-party archives.
++
++   Copyright [yyyy] [name of copyright owner]
++
++   Licensed under the Apache License, Version 2.0 (the "License");
++   you may not use this file except in compliance with the License.
++   You may obtain a copy of the License at
++
++       http://www.apache.org/licenses/LICENSE-2.0
++
++   Unless required by applicable law or agreed to in writing, software
++   distributed under the License is distributed on an "AS IS" BASIS,
++   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++   See the License for the specific language governing permissions and
++   limitations under the License.
+diff --git a/app/src/main/java/com/streamvault/app/ui/screens/settings/SettingsBackupAboutSections.kt b/app/src/main/java/com/streamvault/app/ui/screens/settings/SettingsBackupAboutSections.kt
+index d9229df..53f1583 100644
+--- a/app/src/main/java/com/streamvault/app/ui/screens/settings/SettingsBackupAboutSections.kt
++++ b/app/src/main/java/com/streamvault/app/ui/screens/settings/SettingsBackupAboutSections.kt
+@@ -519,6 +519,7 @@ internal fun LazyListScope.settingsAboutSection(
+         SettingsRow(label = stringResource(R.string.settings_build), value = stringResource(R.string.settings_build_desc))
+         SettingsRow(label = stringResource(R.string.settings_build_verification), value = buildVerificationLabel)
+         SettingsRow(label = stringResource(R.string.settings_developed_by), value = stringResource(R.string.settings_developer_name))
++        SettingsRow(label = "WireGuard", value = "Based on StreamVault · David Nashash (Davidona)")
+         ClickableSettingsRow(
+             label = stringResource(R.string.settings_github),
+             value = stringResource(R.string.settings_github_url),
+diff --git a/app/src/main/java/com/streamvault/app/ui/screens/settings/SettingsContentPane.kt b/app/src/main/java/com/streamvault/app/ui/screens/settings/SettingsContentPane.kt
+index 6c5d60c..e5c7307 100644
+--- a/app/src/main/java/com/streamvault/app/ui/screens/settings/SettingsContentPane.kt
++++ b/app/src/main/java/com/streamvault/app/ui/screens/settings/SettingsContentPane.kt
+@@ -146,6 +146,7 @@ internal fun SettingsContentPane(
+                 }
+             )
+         } else if (dialogState.selectedCategory == 3) {
++            item(key = "wireguard") { WireGuardSettingsCard() }
+             settingsPrivacySection(
+                 uiState = uiState,
+                 viewModel = viewModel,
+diff --git a/app/src/main/java/com/streamvault/app/ui/screens/settings/WireGuardSettingsCard.kt b/app/src/main/java/com/streamvault/app/ui/screens/settings/WireGuardSettingsCard.kt
+new file mode 100644
+index 0000000..60abc34
+--- /dev/null
++++ b/app/src/main/java/com/streamvault/app/ui/screens/settings/WireGuardSettingsCard.kt
+@@ -0,0 +1,185 @@
++package com.streamvault.app.ui.screens.settings
++
++import android.app.Activity
++import android.content.ActivityNotFoundException
++import android.net.VpnService
++import android.view.WindowManager
++import androidx.activity.compose.rememberLauncherForActivityResult
++import androidx.activity.result.contract.ActivityResultContracts
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.material3.OutlinedTextField
++import androidx.compose.material3.OutlinedTextFieldDefaults
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.DisposableEffect
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.saveable.rememberSaveable
++import androidx.compose.runtime.setValue
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.platform.LocalContext
++import androidx.compose.ui.platform.LocalView
++import androidx.compose.ui.res.stringResource
++import androidx.compose.ui.unit.dp
++import androidx.compose.ui.window.DialogWindowProvider
++import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import androidx.lifecycle.viewmodel.compose.viewModel
++import androidx.tv.material3.Text
++import com.streamvault.app.R
++import com.streamvault.app.ui.components.dialogs.PremiumDialog
++import com.streamvault.app.ui.components.dialogs.PremiumDialogActionButton
++import com.streamvault.app.ui.components.dialogs.PremiumDialogFooterButton
++import com.streamvault.app.ui.theme.OnSurface
++import com.streamvault.app.ui.theme.Primary
++import com.streamvault.app.vpn.VpnPhase
++import com.streamvault.app.vpn.WireGuardForegroundService
++import com.streamvault.app.vpn.WireGuardViewModel
++
++@Composable
++internal fun WireGuardSettingsCard(model: WireGuardViewModel = viewModel()) {
++    val context = LocalContext.current
++    val state by model.state.collectAsStateWithLifecycle()
++    val status by model.status.collectAsStateWithLifecycle()
++    var showProfiles by rememberSaveable { mutableStateOf(false) }
++    var showImport by rememberSaveable { mutableStateOf(false) }
++    var pendingId by rememberSaveable { mutableStateOf<String?>(null) }
++    var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
++    var name by rememberSaveable { mutableStateOf("") }
++    // Config contains a private key: never persist it in savedInstanceState.
++    var config by remember { mutableStateOf("") }
++    val permission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
++        val id = pendingId
++        pendingId = null
++        if (result.resultCode == Activity.RESULT_OK && id != null) {
++            WireGuardForegroundService.connect(context, id)
++        } else {
++            model.reportError(R.string.wg_error_permission)
++        }
++    }
++    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
++        if (uri != null) model.importFile(name, uri)
++    }
++    LaunchedEffect(state.importFinished) {
++        if (state.importFinished > 0) {
++            showImport = false
++            config = ""
++            name = ""
++        }
++    }
++    val statusText = stringResource(when (status.phase) {
++        VpnPhase.OFF -> R.string.wg_off
++        VpnPhase.CONNECTING -> R.string.wg_connecting
++        VpnPhase.UP -> R.string.wg_up
++        VpnPhase.DISCONNECTING -> R.string.wg_disconnecting
++        VpnPhase.ERROR -> R.string.wg_error_connect
++    })
++    ClickableSettingsRow(stringResource(R.string.wg_title), statusText, { showProfiles = true })
++    if (showProfiles) {
++        PremiumDialog(
++            title = stringResource(R.string.wg_title),
++            subtitle = stringResource(R.string.wg_scope),
++            widthFraction = 0.7f,
++            onDismissRequest = { showProfiles = false },
++            content = {
++                Text(statusText, color = OnSurface)
++                if (status.phase == VpnPhase.UP) {
++                    Text(stringResource(if (status.handshakeAt > 0) R.string.wg_handshake else R.string.wg_waiting),
++                        color = OnSurface)
++                }
++                state.error?.let { Text(stringResource(it), color = OnSurface) }
++                if (status.occupied) {
++                    PremiumDialogActionButton(
++                        label = stringResource(R.string.wg_disconnect),
++                        enabled = status.phase == VpnPhase.UP,
++                        onClick = { WireGuardForegroundService.disconnect(context) })
++                }
++                PremiumDialogActionButton(
++                    label = stringResource(R.string.wg_add), enabled = !state.busy && state.profiles.size < 32,
++                    onClick = { config = ""; name = ""; showImport = true })
++                if (state.profiles.isEmpty() && !state.busy) Text(stringResource(R.string.wg_empty), color = OnSurface)
++                state.profiles.forEach { profile ->
++                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
++                        ClickableSettingsRow(
++                            label = profile.name.take(32),
++                            value = stringResource(if (status.profileId == profile.id) R.string.wg_selected else R.string.wg_connect),
++                            enabled = !status.occupied && pendingId == null && !state.busy,
++                            onClick = {
++                                try {
++                                    val consent = VpnService.prepare(context)
++                                    if (consent == null) WireGuardForegroundService.connect(context, profile.id)
++                                    else { pendingId = profile.id; permission.launch(consent) }
++                                } catch (_: Exception) {
++                                    pendingId = null
++                                    model.reportError(R.string.wg_error_permission)
++                                }
++                            })
++                        PremiumDialogActionButton(
++                            label = stringResource(R.string.wg_delete),
++                            enabled = !state.busy && !status.occupied && pendingId == null,
++                            onClick = { deleteId = profile.id })
++                    }
++                }
++                Text(stringResource(R.string.wg_lifecycle), color = OnSurface)
++            },
++            footer = {
++                PremiumDialogFooterButton(stringResource(R.string.wg_close), onClick = { showProfiles = false })
++            }
++        )
++    }
++    if (showImport) {
++        PremiumDialog(
++            title = stringResource(R.string.wg_add),
++            subtitle = stringResource(R.string.wg_import_hint),
++            widthFraction = 0.75f,
++            onDismissRequest = { if (!state.busy) { showImport = false; config = "" } },
++            content = {
++                val view = LocalView.current
++                DisposableEffect(view) {
++                    val window = (view.parent as? DialogWindowProvider)?.window
++                    window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
++                    onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
++                }
++                OutlinedTextField(name, { if (it.length <= 64) name = it },
++                    label = { Text(stringResource(R.string.wg_name)) }, singleLine = true,
++                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = OnSurface,
++                        unfocusedTextColor = OnSurface, cursorColor = Primary),
++                    enabled = !state.busy, modifier = Modifier.fillMaxWidth())
++                PremiumDialogActionButton(
++                    label = stringResource(R.string.wg_import_file), enabled = name.isNotBlank() && !state.busy,
++                    onClick = {
++                        try { picker.launch(arrayOf("*/*")) }
++                        catch (_: ActivityNotFoundException) { model.reportError(R.string.wg_error_picker) }
++                    })
++                OutlinedTextField(config, { if (it.length <= 65_536) config = it },
++                    label = { Text(stringResource(R.string.wg_config)) }, minLines = 3, maxLines = 6,
++                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = OnSurface,
++                        unfocusedTextColor = OnSurface, cursorColor = Primary),
++                    enabled = !state.busy, modifier = Modifier.fillMaxWidth())
++                state.error?.let { Text(stringResource(it), color = OnSurface) }
++                PremiumDialogActionButton(
++                    label = stringResource(R.string.wg_save), enabled = name.isNotBlank() && config.isNotBlank() && !state.busy,
++                    onClick = { model.importText(name, config) })
++            },
++            footer = {
++                PremiumDialogFooterButton(stringResource(R.string.wg_cancel), enabled = !state.busy,
++                    onClick = { showImport = false; config = "" })
++            }
++        )
++    }
++    deleteId?.let { id ->
++        PremiumDialog(
++            title = stringResource(R.string.wg_delete),
++            subtitle = stringResource(R.string.wg_delete_confirm),
++            onDismissRequest = { deleteId = null },
++            content = {
++                PremiumDialogActionButton(stringResource(R.string.wg_delete), onClick = {
++                    model.delete(id); deleteId = null
++                })
++            },
++            footer = { PremiumDialogFooterButton(stringResource(R.string.wg_cancel), onClick = { deleteId = null }) }
++        )
++    }
++}
+diff --git a/app/src/main/java/com/streamvault/app/vpn/WireGuardConfigPolicy.kt b/app/src/main/java/com/streamvault/app/vpn/WireGuardConfigPolicy.kt
+new file mode 100644
+index 0000000..0bf0a6d
+--- /dev/null
++++ b/app/src/main/java/com/streamvault/app/vpn/WireGuardConfigPolicy.kt
+@@ -0,0 +1,55 @@
++package com.streamvault.app.vpn
++
++import com.wireguard.config.Config
++import com.wireguard.config.Interface
++import java.io.ByteArrayInputStream
++import java.net.Inet4Address
++import java.net.Inet6Address
++
++/** Never display parser exception messages: they can contain private keys. */
++internal class VpnProfileException(val reason: Reason) : Exception() {
++    enum class Reason { INVALID, FULL_TUNNEL, DNS, TOO_LARGE, STORAGE }
++}
++
++internal object WireGuardConfigPolicy {
++    const val MAX_BYTES = 65_536
++
++    fun parse(text: String, packageName: String): Config {
++        if (text.toByteArray(Charsets.UTF_8).size > MAX_BYTES) {
++            throw VpnProfileException(VpnProfileException.Reason.TOO_LARGE)
++        }
++        // Android application selection is owned by this app, not by an imported profile.
++        val sanitized = text.removePrefix("\uFEFF").lineSequence().filterNot {
++            val key = it.substringBefore('=').trim()
++            key.equals("IncludedApplications", true) || key.equals("ExcludedApplications", true)
++        }.joinToString("\n")
++        val source = try {
++            Config.parse(ByteArrayInputStream(sanitized.toByteArray(Charsets.UTF_8)))
++        } catch (_: Exception) {
++            throw VpnProfileException(VpnProfileException.Reason.INVALID)
++        }
++        val iface = source.`interface`
++        val peer = source.peers.singleOrNull()
++            ?: throw VpnProfileException(VpnProfileException.Reason.FULL_TUNNEL)
++        if (iface.addresses.isEmpty() || !peer.endpoint.isPresent) {
++            throw VpnProfileException(VpnProfileException.Reason.INVALID)
++        }
++        if (iface.dnsServers.isEmpty()) throw VpnProfileException(VpnProfileException.Reason.DNS)
++        val hasV4Default = peer.allowedIps.any { it.mask == 0 && it.address is Inet4Address }
++        val hasV6Default = peer.allowedIps.any { it.mask == 0 && it.address is Inet6Address }
++        val usesV6 = iface.addresses.any { it.address is Inet6Address } ||
++            iface.dnsServers.any { it is Inet6Address } || peer.allowedIps.any { it.address is Inet6Address }
++        if (!hasV4Default || (usesV6 && !hasV6Default)) {
++            throw VpnProfileException(VpnProfileException.Reason.FULL_TUNNEL)
++        }
++        val scoped = Interface.Builder()
++            .setKeyPair(iface.keyPair)
++            .addAddresses(iface.addresses)
++            .addDnsServers(iface.dnsServers)
++            .addDnsSearchDomains(iface.dnsSearchDomains)
++            .includeApplication(packageName)
++        iface.mtu.ifPresent { scoped.setMtu(it) }
++        iface.listenPort.ifPresent { scoped.setListenPort(it) }
++        return Config.Builder().setInterface(scoped.build()).addPeer(peer).build()
++    }
++}
+diff --git a/app/src/main/java/com/streamvault/app/vpn/WireGuardForegroundService.kt b/app/src/main/java/com/streamvault/app/vpn/WireGuardForegroundService.kt
+new file mode 100644
+index 0000000..11ebbee
+--- /dev/null
++++ b/app/src/main/java/com/streamvault/app/vpn/WireGuardForegroundService.kt
+@@ -0,0 +1,161 @@
++package com.streamvault.app.vpn
++
++import android.app.Service
++import android.content.Context
++import android.content.Intent
++import android.os.IBinder
++import androidx.core.content.ContextCompat
++import com.wireguard.android.backend.GoBackend
++import com.wireguard.android.backend.Tunnel
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.SupervisorJob
++import kotlinx.coroutines.cancel
++import kotlinx.coroutines.delay
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.flow.update
++import kotlinx.coroutines.flow.first
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.withTimeout
++import kotlinx.coroutines.sync.Mutex
++import kotlinx.coroutines.sync.withLock
++
++internal enum class VpnPhase { OFF, CONNECTING, UP, DISCONNECTING, ERROR }
++internal data class VpnStatus(
++    val phase: VpnPhase = VpnPhase.OFF,
++    val profileId: String? = null,
++    val handshakeAt: Long = 0L
++) {
++    val occupied: Boolean get() = phase in setOf(VpnPhase.CONNECTING, VpnPhase.UP, VpnPhase.DISCONNECTING)
++}
++
++/** Keeps the userspace tunnel alive while browsing, playing or recording in the background. */
++class WireGuardForegroundService : Service() {
++    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
++    private val mutex = Mutex()
++    private var backend: GoBackend? = null
++    @Volatile private var destroyed = false
++    @Volatile private var failed = false
++    private var started = false
++    private val tunnel = object : Tunnel {
++        override fun getName() = "streamvault"
++        override fun onStateChange(newState: Tunnel.State) {
++            if (newState == Tunnel.State.DOWN && status.value.phase == VpnPhase.UP) {
++                mutableStatus.value = VpnStatus(VpnPhase.DISCONNECTING)
++                stopSelf()
++            }
++        }
++    }
++
++    override fun onCreate() {
++        super.onCreate()
++        showWireGuardNotification()
++    }
++
++    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
++        if (intent?.action == DISCONNECT) {
++            mutableStatus.update { it.copy(phase = VpnPhase.DISCONNECTING) }
++            stopSelf()
++        } else if (!started) {
++            started = true
++            val id = intent?.getStringExtra(PROFILE_ID)
++            if (id == null) {
++                stopSelf()
++            } else {
++                mutableStatus.value = VpnStatus(VpnPhase.CONNECTING, id)
++                scope.launch {
++                    mutex.withLock {
++                        try {
++                            val config = WireGuardProfileStore(applicationContext).config(id)
++                            if (destroyed) return@withLock
++                            val engine = GoBackend(applicationContext).also { backend = it }
++                            // Populate GoBackend's service future before setState. Keep the
++                            // service lifecycle observable so a quick reconnect cannot reuse
++                            // a VPN service that is still being destroyed.
++                            startService(Intent(this@WireGuardForegroundService, WireGuardTunnelService::class.java))
++                            withTimeout(5_000) { WireGuardTunnelService.ready.first { it } }
++                            if (destroyed) return@withLock
++                            engine.setState(tunnel, Tunnel.State.UP, config)
++                            if (!destroyed) mutableStatus.value = VpnStatus(VpnPhase.UP, id)
++                        } catch (_: Exception) {
++                            failed = true
++                            mutableStatus.value = VpnStatus(VpnPhase.DISCONNECTING, id)
++                            stopSelf()
++                        } catch (_: LinkageError) {
++                            // Unsupported/missing native ABI must not crash the IPTV application.
++                            failed = true
++                            mutableStatus.value = VpnStatus(VpnPhase.DISCONNECTING, id)
++                            stopSelf()
++                        }
++                    }
++                    while (!destroyed && status.value.phase == VpnPhase.UP) {
++                        delay(2_000)
++                        mutex.withLock {
++                            if (!destroyed) {
++                                try {
++                                    val stats = backend?.getStatistics(tunnel)
++                                    val latest = stats?.peers()?.maxOfOrNull {
++                                        stats.peer(it)?.latestHandshakeEpochMillis() ?: 0L
++                                    } ?: 0L
++                                    mutableStatus.update { it.copy(handshakeAt = latest) }
++                                } catch (_: Exception) { /* Retain last observed handshake. */ }
++                            }
++                        }
++                    }
++                }
++            }
++        }
++        // Reconnection is explicit after process death/reboot; never claim an inactive VPN is up.
++        return START_NOT_STICKY
++    }
++
++    override fun onDestroy() {
++        destroyed = true
++        super.onDestroy()
++        scope.launch {
++            mutex.withLock {
++                try {
++                    backend?.setState(tunnel, Tunnel.State.DOWN, null)
++                } catch (_: Exception) {
++                    failed = true
++                }
++                try {
++                    stopService(Intent(this@WireGuardForegroundService, WireGuardTunnelService::class.java))
++                    withTimeout(5_000) { WireGuardTunnelService.ready.first { !it } }
++                } catch (_: Exception) {
++                    failed = true
++                } finally {
++                    mutableStatus.value = VpnStatus(if (failed) VpnPhase.ERROR else VpnPhase.OFF)
++                    scope.cancel()
++                }
++            }
++        }
++    }
++
++    override fun onBind(intent: Intent?): IBinder? = null
++
++    companion object {
++        private const val PROFILE_ID = "profile_id"
++        internal const val DISCONNECT = "com.streamvault.app.vpn.DISCONNECT"
++        private val mutableStatus = MutableStateFlow(VpnStatus())
++        internal val status = mutableStatus.asStateFlow()
++
++        internal fun connect(context: Context, id: String) {
++            if (status.value.occupied) return
++            mutableStatus.value = VpnStatus(VpnPhase.CONNECTING, id)
++            try {
++                ContextCompat.startForegroundService(context,
++                    Intent(context, WireGuardForegroundService::class.java).putExtra(PROFILE_ID, id))
++            } catch (_: Exception) {
++                mutableStatus.value = VpnStatus(VpnPhase.ERROR)
++            }
++        }
++
++        internal fun disconnect(context: Context) {
++            if (!status.value.occupied) return
++            mutableStatus.update { it.copy(phase = VpnPhase.DISCONNECTING) }
++            context.startService(Intent(context, WireGuardForegroundService::class.java).setAction(DISCONNECT))
++        }
++    }
++}
+diff --git a/app/src/main/java/com/streamvault/app/vpn/WireGuardNotification.kt b/app/src/main/java/com/streamvault/app/vpn/WireGuardNotification.kt
+new file mode 100644
+index 0000000..1e39616
+--- /dev/null
++++ b/app/src/main/java/com/streamvault/app/vpn/WireGuardNotification.kt
+@@ -0,0 +1,40 @@
++package com.streamvault.app.vpn
++
++import android.app.NotificationChannel
++import android.app.NotificationManager
++import android.app.PendingIntent
++import android.app.Service
++import android.content.Intent
++import android.content.pm.ServiceInfo
++import android.os.Build
++import androidx.core.app.NotificationCompat
++import com.streamvault.app.MainActivity
++import com.streamvault.app.R
++
++private const val CHANNEL = "wireguard_vpn"
++private const val NOTIFICATION_ID = 9417
++
++// Both services share a notification ID; Android retains it until both have stopped.
++internal fun Service.showWireGuardNotification() {
++    val manager = getSystemService(NotificationManager::class.java)
++    if (Build.VERSION.SDK_INT >= 26) {
++        manager.createNotificationChannel(NotificationChannel(
++            CHANNEL, getString(R.string.wg_title), NotificationManager.IMPORTANCE_LOW))
++    }
++    val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
++        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
++    val disconnect = PendingIntent.getService(this, 1,
++        Intent(this, WireGuardForegroundService::class.java).setAction(WireGuardForegroundService.DISCONNECT),
++        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
++    val notification = NotificationCompat.Builder(this, CHANNEL)
++        .setSmallIcon(android.R.drawable.ic_lock_lock)
++        .setContentTitle(getString(R.string.wg_title))
++        .setContentText(getString(R.string.wg_notification))
++        .setContentIntent(open).setOngoing(true)
++        .addAction(0, getString(R.string.wg_disconnect), disconnect).build()
++    if (Build.VERSION.SDK_INT >= 34) {
++        startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
++    } else {
++        startForeground(NOTIFICATION_ID, notification)
++    }
++}
+diff --git a/app/src/main/java/com/streamvault/app/vpn/WireGuardProfileStore.kt b/app/src/main/java/com/streamvault/app/vpn/WireGuardProfileStore.kt
+new file mode 100644
+index 0000000..a90c9df
+--- /dev/null
++++ b/app/src/main/java/com/streamvault/app/vpn/WireGuardProfileStore.kt
+@@ -0,0 +1,98 @@
++package com.streamvault.app.vpn
++
++import android.content.Context
++import android.security.keystore.KeyGenParameterSpec
++import android.security.keystore.KeyProperties
++import android.util.AtomicFile
++import org.json.JSONArray
++import org.json.JSONObject
++import java.io.File
++import java.security.KeyStore
++import java.util.UUID
++import javax.crypto.Cipher
++import javax.crypto.KeyGenerator
++import javax.crypto.SecretKey
++import javax.crypto.spec.GCMParameterSpec
++
++internal data class VpnProfile(val id: String, val name: String)
++
++/** All profiles (including names) are encrypted and excluded from Android/app backups. */
++internal class WireGuardProfileStore(private val context: Context) {
++    private val file = AtomicFile(File(context.noBackupFilesDir, "wireguard-profiles.enc"))
++
++    fun list(): List<VpnProfile> = synchronized(lock) {
++        val entries = read()
++        List(entries.length()) { i ->
++            entries.getJSONObject(i).let { VpnProfile(it.getString("id"), it.getString("name")) }
++        }
++    }
++
++    fun config(id: String) = synchronized(lock) {
++        val entries = read()
++        val entry = (0 until entries.length()).map { entries.getJSONObject(it) }
++            .firstOrNull { it.getString("id") == id }
++            ?: throw VpnProfileException(VpnProfileException.Reason.STORAGE)
++        WireGuardConfigPolicy.parse(entry.getString("config"), context.packageName)
++    }
++
++    fun add(name: String, text: String) = synchronized(lock) {
++        require(name.trim().isNotEmpty() && name.trim().length <= 64)
++        val config = WireGuardConfigPolicy.parse(text, context.packageName)
++        val entries = read()
++        require(entries.length() < 32)
++        entries.put(JSONObject().put("id", UUID.randomUUID().toString())
++            .put("name", name.trim()).put("config", config.toWgQuickString()))
++        write(entries)
++    }
++
++    fun delete(id: String) = synchronized(lock) {
++        val old = read()
++        val entries = JSONArray()
++        for (i in 0 until old.length()) {
++            val entry = old.getJSONObject(i)
++            if (entry.getString("id") != id) entries.put(entry)
++        }
++        write(entries)
++    }
++
++    private fun key(): SecretKey {
++        val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
++        (store.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
++        return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").run {
++            init(KeyGenParameterSpec.Builder(KEY_ALIAS,
++                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
++                .setKeySize(256)
++                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
++                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
++            generateKey()
++        }
++    }
++
++    private fun read(): JSONArray {
++        if (!file.baseFile.exists() && !File(file.baseFile.path + ".bak").exists()) return JSONArray()
++        val envelope = file.readFully()
++        require(envelope.size >= 29 && envelope[0] == 1.toByte())
++        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
++        cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, envelope.copyOfRange(1, 13)))
++        return JSONArray(String(cipher.doFinal(envelope.copyOfRange(13, envelope.size)), Charsets.UTF_8))
++    }
++
++    private fun write(entries: JSONArray) {
++        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
++        cipher.init(Cipher.ENCRYPT_MODE, key())
++        val envelope = byteArrayOf(1) + cipher.iv + cipher.doFinal(entries.toString().toByteArray(Charsets.UTF_8))
++        val output = file.startWrite()
++        try {
++            output.write(envelope)
++            file.finishWrite(output)
++        } catch (error: Exception) {
++            file.failWrite(output)
++            throw error
++        }
++    }
++
++    companion object {
++        private const val KEY_ALIAS = "streamvault-wireguard-v1"
++        private val lock = Any()
++    }
++}
+diff --git a/app/src/main/java/com/streamvault/app/vpn/WireGuardTunnelService.kt b/app/src/main/java/com/streamvault/app/vpn/WireGuardTunnelService.kt
+new file mode 100644
+index 0000000..903414e
+--- /dev/null
++++ b/app/src/main/java/com/streamvault/app/vpn/WireGuardTunnelService.kt
+@@ -0,0 +1,31 @@
++package com.streamvault.app.vpn
++
++import android.content.Intent
++import com.wireguard.android.backend.GoBackend
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.asStateFlow
++
++/** Explicitly started before GoBackend.setState; exposes completion of backend teardown. */
++class WireGuardTunnelService : GoBackend.VpnService() {
++    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
++        super.onStartCommand(intent, flags, startId)
++        if (intent == null) stopSelf()
++        return START_NOT_STICKY
++    }
++
++    override fun onCreate() {
++        super.onCreate()
++        showWireGuardNotification()
++        mutableReady.value = true
++    }
++
++    override fun onDestroy() {
++        super.onDestroy()
++        mutableReady.value = false
++    }
++
++    companion object {
++        private val mutableReady = MutableStateFlow(false)
++        internal val ready = mutableReady.asStateFlow()
++    }
++}
+diff --git a/app/src/main/java/com/streamvault/app/vpn/WireGuardViewModel.kt b/app/src/main/java/com/streamvault/app/vpn/WireGuardViewModel.kt
+new file mode 100644
+index 0000000..bf50c2c
+--- /dev/null
++++ b/app/src/main/java/com/streamvault/app/vpn/WireGuardViewModel.kt
+@@ -0,0 +1,81 @@
++package com.streamvault.app.vpn
++
++import android.app.Application
++import android.net.Uri
++import androidx.lifecycle.AndroidViewModel
++import androidx.lifecycle.viewModelScope
++import com.streamvault.app.R
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.sync.Mutex
++import kotlinx.coroutines.sync.withLock
++import kotlinx.coroutines.withContext
++
++internal data class VpnProfilesState(
++    val profiles: List<VpnProfile> = emptyList(),
++    val busy: Boolean = true,
++    val error: Int? = null,
++    val importFinished: Int = 0
++)
++
++internal class WireGuardViewModel(application: Application) : AndroidViewModel(application) {
++    private val store = WireGuardProfileStore(application)
++    private val mutex = Mutex()
++    private val mutableState = MutableStateFlow(VpnProfilesState())
++    val state = mutableState.asStateFlow()
++    val status = WireGuardForegroundService.status
++
++    init { operation { } }
++
++    fun importText(name: String, config: String) = operation(importing = true) { store.add(name, config) }
++
++    fun importFile(name: String, uri: Uri) = operation(importing = true) {
++        val bytes = getApplication<Application>().contentResolver.openInputStream(uri)?.use { stream ->
++            val out = java.io.ByteArrayOutputStream()
++            val buffer = ByteArray(4096)
++            while (true) {
++                val count = stream.read(buffer)
++                if (count < 0) break
++                if (out.size() + count > WireGuardConfigPolicy.MAX_BYTES) {
++                    throw VpnProfileException(VpnProfileException.Reason.TOO_LARGE)
++                }
++                out.write(buffer, 0, count)
++            }
++            out.toByteArray()
++        } ?: throw VpnProfileException(VpnProfileException.Reason.STORAGE)
++        store.add(name, String(bytes, Charsets.UTF_8))
++    }
++
++    fun delete(id: String) = operation {
++        check(!status.value.occupied || status.value.profileId != id)
++        store.delete(id)
++    }
++
++    fun reportError(message: Int) { mutableState.value = mutableState.value.copy(error = message) }
++
++    private fun operation(importing: Boolean = false, block: () -> Unit) {
++        viewModelScope.launch {
++            mutex.withLock {
++                mutableState.value = mutableState.value.copy(busy = true, error = null)
++                try {
++                    val profiles = withContext(Dispatchers.IO) { block(); store.list() }
++                    mutableState.value = mutableState.value.copy(profiles = profiles, busy = false,
++                        importFinished = mutableState.value.importFinished + if (importing) 1 else 0)
++                } catch (cancelled: kotlinx.coroutines.CancellationException) {
++                    throw cancelled
++                } catch (error: Exception) {
++                    val message = when ((error as? VpnProfileException)?.reason) {
++                        VpnProfileException.Reason.INVALID -> R.string.wg_error_config
++                        VpnProfileException.Reason.FULL_TUNNEL -> R.string.wg_error_routes
++                        VpnProfileException.Reason.DNS -> R.string.wg_error_dns
++                        VpnProfileException.Reason.TOO_LARGE -> R.string.wg_error_size
++                        else -> R.string.wg_error_storage
++                    }
++                    mutableState.value = mutableState.value.copy(busy = false, error = message)
++                }
++            }
++        }
++    }
++}
+diff --git a/app/src/main/res/values-de/wireguard.xml b/app/src/main/res/values-de/wireguard.xml
+new file mode 100644
+index 0000000..7c81551
+--- /dev/null
++++ b/app/src/main/res/values-de/wireguard.xml
+@@ -0,0 +1,35 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <string name="wg_title">WireGuard VPN</string>
++    <string name="wg_scope">Nur diese App nutzt das VPN. Andere Apps, externe Player und Cast-Empfänger verwenden ihre eigene Verbindung.</string>
++    <string name="wg_notification">WireGuard-Tunnel für StreamVault</string>
++    <string name="wg_off">Nicht verbunden</string>
++    <string name="wg_connecting">Tunnel wird gestartet…</string>
++    <string name="wg_up">Tunnel aktiv</string>
++    <string name="wg_disconnecting">Verbindung wird getrennt…</string>
++    <string name="wg_handshake">Handshake vom VPN-Server empfangen</string>
++    <string name="wg_waiting">Warte auf Server-Handshake. Ein aktiver Tunnel allein bestätigt noch keine erreichbare VPN-Verbindung.</string>
++    <string name="wg_add">Profil hinzufügen</string>
++    <string name="wg_connect">Verbinden</string>
++    <string name="wg_disconnect">Trennen</string>
++    <string name="wg_selected">Ausgewählt</string>
++    <string name="wg_delete">Profil löschen</string>
++    <string name="wg_delete_confirm">Dieses gespeicherte VPN-Profil dauerhaft löschen?</string>
++    <string name="wg_close">Schließen</string>
++    <string name="wg_cancel">Abbrechen</string>
++    <string name="wg_empty">Noch keine WireGuard-Profile vorhanden.</string>
++    <string name="wg_name">Profilname</string>
++    <string name="wg_config">WireGuard-Konfiguration einfügen</string>
++    <string name="wg_save">Konfiguration speichern</string>
++    <string name="wg_import_file">.conf-Datei importieren</string>
++    <string name="wg_import_hint">Namen eingeben und eine .conf-Datei auswählen oder deren Inhalt einfügen. Profile werden auf diesem Gerät verschlüsselt gespeichert.</string>
++    <string name="wg_lifecycle">Bleibt im Hintergrund aktiv. Nach einem Geräteneustart oder Beenden durch Android erneut verbinden. Trennen stellt die normale Verbindung wieder her. Android erlaubt jeweils ein VPN.</string>
++    <string name="wg_error_permission">VPN-Freigabe abgelehnt oder auf diesem Gerät nicht verfügbar.</string>
++    <string name="wg_error_connect">VPN konnte nicht gestartet werden. Profil, Netzwerk und Android-VPN-Freigabe prüfen.</string>
++    <string name="wg_error_config">Ungültige WireGuard-Konfiguration. Schlüssel, Interface-Adresse und Peer-Endpunkt prüfen. Desktop-Skripte werden nicht unterstützt.</string>
++    <string name="wg_error_routes">Ein Peer mit AllowedIPs = 0.0.0.0/0 und bei konfiguriertem IPv6 zusätzlich ::/0 ist erforderlich. Teilnetz-Tunnel werden nicht unterstützt.</string>
++    <string name="wg_error_dns">Mindestens eine DNS-Server-Adresse im Abschnitt Interface ergänzen.</string>
++    <string name="wg_error_size">Konfiguration überschreitet die Grenze von 64 KiB.</string>
++    <string name="wg_error_storage">Profil konnte nicht gelesen oder gespeichert werden. Datei prüfen und einen Namen mit maximal 64 Zeichen wählen. Höchstens 32 Profile.</string>
++    <string name="wg_error_picker">Keine Dateiauswahl verfügbar. Bitte die Konfiguration unten einfügen.</string>
++</resources>
+diff --git a/app/src/main/res/values/wireguard.xml b/app/src/main/res/values/wireguard.xml
+new file mode 100644
+index 0000000..50b7623
+--- /dev/null
++++ b/app/src/main/res/values/wireguard.xml
+@@ -0,0 +1,35 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <string name="wg_title">WireGuard VPN</string>
++    <string name="wg_scope">Routes only this app through your VPN. Other apps, external players and Cast receivers use their own connection.</string>
++    <string name="wg_notification">WireGuard tunnel for StreamVault</string>
++    <string name="wg_off">Disconnected</string>
++    <string name="wg_connecting">Starting tunnel…</string>
++    <string name="wg_up">Tunnel active</string>
++    <string name="wg_disconnecting">Disconnecting…</string>
++    <string name="wg_handshake">VPN server handshake received</string>
++    <string name="wg_waiting">Waiting for server handshake. An active tunnel alone does not confirm server reachability.</string>
++    <string name="wg_add">Add profile</string>
++    <string name="wg_connect">Connect</string>
++    <string name="wg_disconnect">Disconnect</string>
++    <string name="wg_selected">Selected</string>
++    <string name="wg_delete">Delete profile</string>
++    <string name="wg_delete_confirm">Permanently delete this saved VPN profile?</string>
++    <string name="wg_close">Close</string>
++    <string name="wg_cancel">Cancel</string>
++    <string name="wg_empty">No WireGuard profiles yet.</string>
++    <string name="wg_name">Profile name</string>
++    <string name="wg_config">Paste WireGuard configuration</string>
++    <string name="wg_save">Save configuration</string>
++    <string name="wg_import_file">Import .conf file</string>
++    <string name="wg_import_hint">Enter a name, then choose a .conf file or paste its contents. Profiles are encrypted on this device.</string>
++    <string name="wg_lifecycle">Stays active in the background. Reconnect after a device restart or if Android stops the app. Disconnecting restores the normal connection. Android allows one VPN at a time.</string>
++    <string name="wg_error_permission">VPN permission was denied or is unavailable on this device.</string>
++    <string name="wg_error_connect">Could not start the VPN. Check the profile, network and Android VPN permission.</string>
++    <string name="wg_error_config">Invalid WireGuard configuration. Check keys, interface address and peer endpoint. Desktop scripts are unsupported.</string>
++    <string name="wg_error_routes">Use one peer with AllowedIPs = 0.0.0.0/0 and, when IPv6 is configured, ::/0. Split tunnels are unsupported.</string>
++    <string name="wg_error_dns">Add at least one DNS server address to the Interface section.</string>
++    <string name="wg_error_size">Configuration exceeds the 64 KiB limit.</string>
++    <string name="wg_error_storage">Could not read or save the profile. Check the file and use a name up to 64 characters. Maximum 32 profiles.</string>
++    <string name="wg_error_picker">No file picker available. Paste the configuration below instead.</string>
++</resources>
+diff --git a/app/src/test/java/com/streamvault/app/vpn/WireGuardConfigPolicyTest.kt b/app/src/test/java/com/streamvault/app/vpn/WireGuardConfigPolicyTest.kt
+new file mode 100644
+index 0000000..1f242d1
+--- /dev/null
++++ b/app/src/test/java/com/streamvault/app/vpn/WireGuardConfigPolicyTest.kt
+@@ -0,0 +1,76 @@
++package com.streamvault.app.vpn
++
++import org.junit.Assert.*
++import org.junit.Test
++import com.wireguard.crypto.KeyPair
++
++class WireGuardConfigPolicyTest {
++    private fun profile(allowed: String = "0.0.0.0/0, ::/0", extra: String = "", dns: String = "DNS = 10.7.0.1") = """
++        [Interface]
++        PrivateKey = ${KeyPair().privateKey.toBase64()}
++        Address = 10.7.0.2/32
++        $dns
++        $extra
++        [Peer]
++        PublicKey = ${KeyPair().publicKey.toBase64()}
++        Endpoint = 192.0.2.1:51820
++        AllowedIPs = $allowed
++        PersistentKeepalive = 25
++    """.trimIndent()
++
++    @Test fun scopesTunnelToActualBuildPackageAndPreservesPeer() {
++        val source = profile(extra = "ExcludedApplications = com.streamvault.app.debug")
++        val config = WireGuardConfigPolicy.parse(source, "com.streamvault.app.debug")
++        assertEquals(setOf("com.streamvault.app.debug"), config.`interface`.includedApplications)
++        assertTrue(config.`interface`.excludedApplications.isEmpty())
++        assertEquals(25, config.peers.single().persistentKeepalive.get())
++        assertEquals("192.0.2.1", config.peers.single().endpoint.get().host)
++    }
++
++    @Test fun importedApplicationListsCannotRouteOtherApps() {
++        val config = WireGuardConfigPolicy.parse(profile(extra = "IncludedApplications = com.other.app"), "test.app")
++        assertEquals(setOf("test.app"), config.`interface`.includedApplications)
++    }
++
++    @Test fun acceptsIpv4OnlyFullTunnel() {
++        WireGuardConfigPolicy.parse(profile(allowed = "0.0.0.0/0"), "test.app")
++    }
++
++    @Test fun rejectsSplitTunnel() {
++        reject(profile(allowed = "10.0.0.0/8"), VpnProfileException.Reason.FULL_TUNNEL)
++    }
++
++    @Test fun rejectsIpv6InterfaceWithoutIpv6DefaultRoute() {
++        reject(profile(allowed = "0.0.0.0/0", extra = "Address = fd00::2/128"), VpnProfileException.Reason.FULL_TUNNEL)
++    }
++
++    @Test fun rejectsMissingDns() {
++        reject(profile(dns = ""), VpnProfileException.Reason.DNS)
++    }
++
++    @Test fun rejectsMultiplePeers() {
++        reject(profile() + "\n[Peer]\nPublicKey = ${KeyPair().publicKey.toBase64()}\nAllowedIPs = 10.0.0.0/8\n",
++            VpnProfileException.Reason.FULL_TUNNEL)
++    }
++
++    @Test fun rejectsOversizedInput() {
++        reject("x".repeat(WireGuardConfigPolicy.MAX_BYTES + 1), VpnProfileException.Reason.TOO_LARGE)
++    }
++
++    @Test fun parserFailureDoesNotExposeSecrets() {
++        val secret = "secret-do-not-log"
++        try {
++            WireGuardConfigPolicy.parse("[Interface]\nPrivateKey = $secret", "test.app")
++            fail("Expected invalid key")
++        } catch (error: VpnProfileException) {
++            assertEquals(VpnProfileException.Reason.INVALID, error.reason)
++            assertNull(error.message)
++            assertNull(error.cause)
++        }
++    }
++
++    private fun reject(text: String, reason: VpnProfileException.Reason) {
++        try { WireGuardConfigPolicy.parse(text, "test.app"); fail("Expected $reason") }
++        catch (error: VpnProfileException) { assertEquals(reason, error.reason) }
++    }
++}
+diff --git a/docs/WIREGUARD.md b/docs/WIREGUARD.md
+new file mode 100644
+index 0000000..2635204
+--- /dev/null
++++ b/docs/WIREGUARD.md
+@@ -0,0 +1,95 @@
++# WireGuard-Erweiterung
++
++Based on StreamVault. Originalentwickler: **David Nashash (Davidona)**.
++
++- Originalprojekt: https://github.com/Davidona/StreamVault-IPTV
++- Unterstützung des Originalentwicklers: https://ko-fi.com/davidona
++- Ausgangscommit: `f86d4aeef21de4524a986c4ae87ac5f58ac42d25`
++- Die unveränderte Projektlizenz in `LICENSE` gilt auch für diese Erweiterung.
++- WireGuard Tunnel Library `com.wireguard.android:tunnel:1.0.20260102`:
++  https://git.zx2c4.com/wireguard-android/about/ (Apache-2.0).
++
++## Benutzung auf Fire TV / Android TV
++
++1. Einstellungen → Datenschutz / Privacy → **WireGuard VPN** öffnen.
++2. **Profil hinzufügen** wählen, einen Namen vergeben und eine `.conf`-Datei
++   importieren oder den Konfigurationstext einfügen. Falls Fire OS keine
++   Dateiauswahl anbietet, ist das Einfügen weiterhin verfügbar.
++3. Beim Profil **Verbinden** wählen und die Android-VPN-Freigabe bestätigen.
++4. Nach **Tunnel aktiv** wie gewohnt in StreamVault navigieren und abspielen.
++   Der zusätzlich angezeigte Handshake bestätigt, dass der VPN-Server geantwortet
++   hat. Ohne Datenverkehr muss noch kein Handshake vorliegen; es wird kein
++   fremder Prüfdienst kontaktiert. Die Handshake-Anzeige ist keine fortlaufende
++   Internet-Erreichbarkeitsgarantie.
++5. Unter WireGuard VPN oder über die Benachrichtigung **Trennen** wählen.
++   Vor einem Profilwechsel zuerst trennen. Profile lassen sich nach Bestätigung
++   löschen. Maximal 32 Profile, je 64 KiB, Namen bis 64 Zeichen.
++
++Es ist keine separate WireGuard-App und kein Root-Zugriff nötig. Es wird ein
++bereits vorhandenes, gültiges VPN-Profil benötigt; diese App stellt keinen
++VPN-Server bereit. Fire OS muss Androids `VpnService` und Freigabedialog anbieten.
++
++## Routing und Lebensdauer
++
++- Nur die tatsächlich installierte StreamVault-Paket-ID wird als erlaubte App
++  eingetragen, einschließlich der `.debug`-Variante. Importierte Listen anderer
++  Apps werden ersetzt. Der Player und die Provider-Implementierungen bleiben
++  unverändert.
++- Ein Peer, ein Endpunkt, eine Interface-Adresse, mindestens eine numerische
++  DNS-Serveradresse und eine IPv4-Standardroute (`0.0.0.0/0`) sind erforderlich.
++  Wenn IPv6-Adressen, IPv6-DNS oder IPv6-Routen konfiguriert sind, ist zusätzlich
++  `::/0` erforderlich. Reine IPv4-Profile werden akzeptiert; die WireGuard-
++  Bibliothek lässt dabei die unkonfigurierte IPv6-Familie nicht am Tunnel vorbei.
++  Teilnetz- und Mehrfach-Peer-Profile werden mit einer Erklärung abgelehnt.
++- Die Konfiguration wird mit dem offiziellen Parser validiert. Desktop-
++  Erweiterungen wie `PostUp`/`PostDown` werden nicht ausgeführt.
++- Der VPN-Dienst läuft während der Nutzung und im Hintergrund weiter, auch für
++  Downloads und Aufnahmen innerhalb der App. Das Schließen eines Dialogs oder
++  der Wechsel zum Player trennt ihn nicht.
++- Nach Neustart, Prozessbeendigung oder Widerruf der VPN-Freigabe muss man erneut
++  verbinden. Kein automatischer Boot-Start, kein Android-Always-on und kein
++  dauerhafter Kill-Switch. Beim Trennen oder Beenden des VPN-Diensts gilt wieder
++  die normale Netzwerkverbindung. Vor einem Streamstart verbinden; bestehende
++  Streams bei Bedarf nach dem Verbinden neu starten.
++- Android verwaltet jeweils ein VPN. Die Systemfreigabe kann ein anderes VPN
++  ersetzen. Andere Apps, externe Player, Plugin-Prozesse in anderen Apps und
++  Cast-Empfänger sind nicht Bestandteil dieses App-Tunnels.
++- Profile sind mit AES-256-GCM und einem Schlüssel aus dem Android Keystore
++  verschlüsselt in `noBackupFilesDir` gespeichert. Sie werden weder vom
++  bestehenden StreamVault-Backup noch vom Android-Backup exportiert. Der
++  Konfigurationstext wird nicht in `savedInstanceState` abgelegt. Fehlermeldungen
++  übernehmen weder Schlüssel noch Rohtexte aus Parser-Ausnahmen.
++
++## Bauen und installieren
++
++Voraussetzungen wie beim Original: JDK 17, Android SDK 36, Gradle Wrapper und
++Zugriff auf Google Maven / Maven Central. Keine eigenen Signierschlüssel oder
++Provider-Zugangsdaten sind in der Erweiterung enthalten.
++
++```sh
++./gradlew :app:testDebugUnitTest --tests 'com.streamvault.app.vpn.*'
++./gradlew :app:assembleDebug
++adb install -r app/build/outputs/apk/debug/app-debug.apk
++```
++
++Die Debug-App verwendet die vorhandene Paket-ID `com.streamvault.app.debug` und
++kann neben der offiziellen Release-App installiert werden. Für eine spätere
++Release-Verteilung sind eine eigene Signierung und die Lizenzbedingungen des
++Originalprojekts zu beachten. Der ursprüngliche Updatekanal ist unverändert;
++Updates des Originalprojekts enthalten diese Erweiterung nicht automatisch.
++
++## Geräteprüfung vor Freigabe
++
++Die folgenden Prüfungen benötigen ein echtes Fire-TV-/Android-TV-Gerät und ein
++funktionierendes Testprofil; sie werden nicht durch einen erfolgreichen Build
++oder die Parser-Tests ersetzt:
++
++- Import per Datei und Texteingabe; D-Pad-Fokus, Zurück, Abbruch, Löschbestätigung.
++- Freigabe bestätigen/ablehnen, erneut verbinden, Profilwechsel, VPN widerrufen.
++- Server-Handshake und IPTV-Wiedergabe einschließlich EPG und Downloads prüfen.
++- IPv4/IPv6 und DNS über einen kontrollierten VPN-Server prüfen; andere Apps
++  müssen weiter die normale Verbindung verwenden.
++- Server/Internet unterbrechen und wiederherstellen; Hintergrundwiedergabe,
++  Geräteneustart und Prozessbeendigung prüfen. Die App darf nach einem Neustart
++  keinen aktiven Tunnel vortäuschen.
++- Native Bibliotheken für `armeabi-v7a` und `arm64-v8a` auf den Zielgeräten prüfen.
+diff --git a/gradle/libs.versions.toml b/gradle/libs.versions.toml
+index 2436d78..8ee141f 100644
+--- a/gradle/libs.versions.toml
++++ b/gradle/libs.versions.toml
+@@ -42,6 +42,7 @@ espresso = "3.6.1"
+ androidx-test-runner = "1.6.2"
+ 
+ [libraries]
++wireguard-tunnel = { group = "com.wireguard.android", name = "tunnel", version = "1.0.20260102" }
+ # Compose BOM
+ compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "compose-bom" }
+ compose-ui = { group = "androidx.compose.ui", name = "ui" }
