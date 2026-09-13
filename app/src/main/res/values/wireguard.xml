@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="wg_title">WireGuard VPN</string>
+    <string name="wg_scope">Routes only this app through your VPN. Other apps, external players and Cast receivers use their own connection.</string>
+    <string name="wg_notification">WireGuard tunnel for StreamVault</string>
+    <string name="wg_off">Disconnected</string>
+    <string name="wg_connecting">Starting tunnel…</string>
+    <string name="wg_up">Tunnel active</string>
+    <string name="wg_disconnecting">Disconnecting…</string>
+    <string name="wg_handshake">VPN server handshake received</string>
+    <string name="wg_waiting">Waiting for server handshake. An active tunnel alone does not confirm server reachability.</string>
+    <string name="wg_add">Add profile</string>
+    <string name="wg_connect">Connect</string>
+    <string name="wg_disconnect">Disconnect</string>
+    <string name="wg_selected">Selected</string>
+    <string name="wg_delete">Delete profile</string>
+    <string name="wg_delete_confirm">Permanently delete this saved VPN profile?</string>
+    <string name="wg_close">Close</string>
+    <string name="wg_cancel">Cancel</string>
+    <string name="wg_empty">No WireGuard profiles yet.</string>
+    <string name="wg_name">Profile name</string>
+    <string name="wg_config">Paste WireGuard configuration</string>
+    <string name="wg_save">Save configuration</string>
+    <string name="wg_import_file">Import .conf file</string>
+    <string name="wg_import_hint">Enter a name, then choose a .conf file or paste its contents. Profiles are encrypted on this device.</string>
+    <string name="wg_lifecycle">Stays active in the background. Reconnect after a device restart or if Android stops the app. Disconnecting restores the normal connection. Android allows one VPN at a time.</string>
+    <string name="wg_error_permission">VPN permission was denied or is unavailable on this device.</string>
+    <string name="wg_error_connect">Could not start the VPN. Check the profile, network and Android VPN permission.</string>
+    <string name="wg_error_config">Invalid WireGuard configuration. Check keys, interface address and peer endpoint. Desktop scripts are unsupported.</string>
+    <string name="wg_error_routes">Use one peer with AllowedIPs = 0.0.0.0/0 and, when IPv6 is configured, ::/0. Split tunnels are unsupported.</string>
+    <string name="wg_error_dns">Add at least one DNS server address to the Interface section.</string>
+    <string name="wg_error_size">Configuration exceeds the 64 KiB limit.</string>
+    <string name="wg_error_storage">Could not read or save the profile. Check the file and use a name up to 64 characters. Maximum 32 profiles.</string>
+    <string name="wg_error_picker">No file picker available. Paste the configuration below instead.</string>
+</resources>

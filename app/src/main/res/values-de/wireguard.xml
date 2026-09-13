@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="wg_title">WireGuard VPN</string>
+    <string name="wg_scope">Nur diese App nutzt das VPN. Andere Apps, externe Player und Cast-Empfänger verwenden ihre eigene Verbindung.</string>
+    <string name="wg_notification">WireGuard-Tunnel für StreamVault</string>
+    <string name="wg_off">Nicht verbunden</string>
+    <string name="wg_connecting">Tunnel wird gestartet…</string>
+    <string name="wg_up">Tunnel aktiv</string>
+    <string name="wg_disconnecting">Verbindung wird getrennt…</string>
+    <string name="wg_handshake">Handshake vom VPN-Server empfangen</string>
+    <string name="wg_waiting">Warte auf Server-Handshake. Ein aktiver Tunnel allein bestätigt noch keine erreichbare VPN-Verbindung.</string>
+    <string name="wg_add">Profil hinzufügen</string>
+    <string name="wg_connect">Verbinden</string>
+    <string name="wg_disconnect">Trennen</string>
+    <string name="wg_selected">Ausgewählt</string>
+    <string name="wg_delete">Profil löschen</string>
+    <string name="wg_delete_confirm">Dieses gespeicherte VPN-Profil dauerhaft löschen?</string>
+    <string name="wg_close">Schließen</string>
+    <string name="wg_cancel">Abbrechen</string>
+    <string name="wg_empty">Noch keine WireGuard-Profile vorhanden.</string>
+    <string name="wg_name">Profilname</string>
+    <string name="wg_config">WireGuard-Konfiguration einfügen</string>
+    <string name="wg_save">Konfiguration speichern</string>
+    <string name="wg_import_file">.conf-Datei importieren</string>
+    <string name="wg_import_hint">Namen eingeben und eine .conf-Datei auswählen oder deren Inhalt einfügen. Profile werden auf diesem Gerät verschlüsselt gespeichert.</string>
+    <string name="wg_lifecycle">Bleibt im Hintergrund aktiv. Nach einem Geräteneustart oder Beenden durch Android erneut verbinden. Trennen stellt die normale Verbindung wieder her. Android erlaubt jeweils ein VPN.</string>
+    <string name="wg_error_permission">VPN-Freigabe abgelehnt oder auf diesem Gerät nicht verfügbar.</string>
+    <string name="wg_error_connect">VPN konnte nicht gestartet werden. Profil, Netzwerk und Android-VPN-Freigabe prüfen.</string>
+    <string name="wg_error_config">Ungültige WireGuard-Konfiguration. Schlüssel, Interface-Adresse und Peer-Endpunkt prüfen. Desktop-Skripte werden nicht unterstützt.</string>
+    <string name="wg_error_routes">Ein Peer mit AllowedIPs = 0.0.0.0/0 und bei konfiguriertem IPv6 zusätzlich ::/0 ist erforderlich. Teilnetz-Tunnel werden nicht unterstützt.</string>
+    <string name="wg_error_dns">Mindestens eine DNS-Server-Adresse im Abschnitt Interface ergänzen.</string>
+    <string name="wg_error_size">Konfiguration überschreitet die Grenze von 64 KiB.</string>
+    <string name="wg_error_storage">Profil konnte nicht gelesen oder gespeichert werden. Datei prüfen und einen Namen mit maximal 64 Zeichen wählen. Höchstens 32 Profile.</string>
+    <string name="wg_error_picker">Keine Dateiauswahl verfügbar. Bitte die Konfiguration unten einfügen.</string>
+</resources>
