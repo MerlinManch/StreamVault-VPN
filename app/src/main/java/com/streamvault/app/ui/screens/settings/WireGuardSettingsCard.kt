@@ -3,14 +3,17 @@ package com.streamvault.app.ui.screens.settings
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.net.VpnService
-import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -21,10 +24,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.DialogWindowProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.tv.material3.Text
@@ -33,7 +34,6 @@ import com.streamvault.app.ui.components.dialogs.PremiumDialog
 import com.streamvault.app.ui.components.dialogs.PremiumDialogActionButton
 import com.streamvault.app.ui.components.dialogs.PremiumDialogFooterButton
 import com.streamvault.app.ui.theme.OnSurface
-import com.streamvault.app.ui.theme.Primary
 import com.streamvault.app.vpn.VpnPhase
 import com.streamvault.app.vpn.WireGuardForegroundService
 import com.streamvault.app.vpn.WireGuardViewModel
@@ -47,9 +47,9 @@ internal fun WireGuardSettingsCard(model: WireGuardViewModel = viewModel()) {
     var showImport by rememberSaveable { mutableStateOf(false) }
     var pendingId by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
-    var name by rememberSaveable { mutableStateOf("") }
-    // Config contains a private key: never persist it in savedInstanceState.
-    var config by remember { mutableStateOf("") }
+    val pairing by model.pairing.collectAsStateWithLifecycle()
+    val addFocus = remember { FocusRequester() }
+    val retryFocus = remember { FocusRequester() }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val id = pendingId
         pendingId = null
@@ -60,13 +60,12 @@ internal fun WireGuardSettingsCard(model: WireGuardViewModel = viewModel()) {
         }
     }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) model.importFile(name, uri)
+        if (uri != null) model.importFile("WireGuard", uri)
     }
     LaunchedEffect(state.importFinished) {
         if (state.importFinished > 0) {
             showImport = false
-            config = ""
-            name = ""
+            model.stopPairing()
         }
     }
     val statusText = stringResource(when (status.phase) {
@@ -77,11 +76,13 @@ internal fun WireGuardSettingsCard(model: WireGuardViewModel = viewModel()) {
         VpnPhase.ERROR -> R.string.wg_error_connect
     })
     ClickableSettingsRow(stringResource(R.string.wg_title), statusText, { showProfiles = true })
-    if (showProfiles) {
+    if (showProfiles && !showImport && deleteId == null) {
         PremiumDialog(
             title = stringResource(R.string.wg_title),
             subtitle = stringResource(R.string.wg_scope),
             widthFraction = 0.7f,
+            scrollOnDirectionalKey = false,
+            initialBodyFocusRequester = addFocus,
             onDismissRequest = { showProfiles = false },
             content = {
                 Text(statusText, color = OnSurface)
@@ -93,12 +94,14 @@ internal fun WireGuardSettingsCard(model: WireGuardViewModel = viewModel()) {
                 if (status.occupied) {
                     PremiumDialogActionButton(
                         label = stringResource(R.string.wg_disconnect),
+                        modifier = Modifier.focusRequester(addFocus),
                         enabled = status.phase == VpnPhase.UP,
                         onClick = { WireGuardForegroundService.disconnect(context) })
                 }
                 PremiumDialogActionButton(
-                    label = stringResource(R.string.wg_add), enabled = !state.busy && state.profiles.size < 32,
-                    onClick = { config = ""; name = ""; showImport = true })
+                    label = stringResource(R.string.wg_add), enabled = !status.occupied && !state.busy && state.profiles.size < 32,
+                    modifier = if (!status.occupied) Modifier.focusRequester(addFocus) else Modifier,
+                    onClick = { showImport = true })
                 if (state.profiles.isEmpty() && !state.busy) Text(stringResource(R.string.wg_empty), color = OnSurface)
                 state.profiles.forEach { profile ->
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -130,47 +133,52 @@ internal fun WireGuardSettingsCard(model: WireGuardViewModel = viewModel()) {
         )
     }
     if (showImport) {
+        DisposableEffect(model) {
+            model.startPairing()
+            onDispose { model.stopPairing() }
+        }
         PremiumDialog(
             title = stringResource(R.string.wg_add),
             subtitle = stringResource(R.string.wg_import_hint),
-            widthFraction = 0.75f,
-            onDismissRequest = { if (!state.busy) { showImport = false; config = "" } },
+            widthFraction = 0.8f,
+            bodyHeightFraction = 0.62f,
+            heightFraction = 0.94f,
+            scrollOnDirectionalKey = false,
+            initialBodyFocusRequester = retryFocus,
+            onDismissRequest = { showImport = false },
             content = {
-                val view = LocalView.current
-                DisposableEffect(view) {
-                    val window = (view.parent as? DialogWindowProvider)?.window
-                    window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-                    onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+                Row(horizontalArrangement = Arrangement.spacedBy(20.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    pairing.qr?.let { bitmap ->
+                        Image(bitmap.asImageBitmap(), stringResource(R.string.wg_phone),
+                            modifier = Modifier.size(156.dp))
+                    }
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(stringResource(R.string.wg_phone_hint), color = OnSurface)
+                        pairing.error?.let { Text(stringResource(it), color = OnSurface) }
+                    }
                 }
-                OutlinedTextField(name, { if (it.length <= 64) name = it },
-                    label = { Text(stringResource(R.string.wg_name)) }, singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = OnSurface,
-                        unfocusedTextColor = OnSurface, cursorColor = Primary),
-                    enabled = !state.busy, modifier = Modifier.fillMaxWidth())
+                state.error?.let { Text(stringResource(it), color = OnSurface) }
                 PremiumDialogActionButton(
-                    label = stringResource(R.string.wg_import_file), enabled = name.isNotBlank() && !state.busy,
+                    label = stringResource(R.string.wg_pairing_retry),
+                    modifier = Modifier.focusRequester(retryFocus),
+                    onClick = { model.startPairing() })
+                PremiumDialogActionButton(
+                    label = stringResource(R.string.wg_import_file), enabled = !state.busy,
                     onClick = {
                         try { picker.launch(arrayOf("*/*")) }
                         catch (_: ActivityNotFoundException) { model.reportError(R.string.wg_error_picker) }
                     })
-                OutlinedTextField(config, { if (it.length <= 65_536) config = it },
-                    label = { Text(stringResource(R.string.wg_config)) }, minLines = 3, maxLines = 6,
-                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = OnSurface,
-                        unfocusedTextColor = OnSurface, cursorColor = Primary),
-                    enabled = !state.busy, modifier = Modifier.fillMaxWidth())
-                state.error?.let { Text(stringResource(it), color = OnSurface) }
-                PremiumDialogActionButton(
-                    label = stringResource(R.string.wg_save), enabled = name.isNotBlank() && config.isNotBlank() && !state.busy,
-                    onClick = { model.importText(name, config) })
             },
             footer = {
-                PremiumDialogFooterButton(stringResource(R.string.wg_cancel), enabled = !state.busy,
-                    onClick = { showImport = false; config = "" })
+                PremiumDialogFooterButton(stringResource(R.string.wg_cancel),
+                    onClick = { showImport = false })
             }
         )
     }
     deleteId?.let { id ->
         PremiumDialog(
+            scrollOnDirectionalKey = false,
             title = stringResource(R.string.wg_delete),
             subtitle = stringResource(R.string.wg_delete_confirm),
             onDismissRequest = { deleteId = null },

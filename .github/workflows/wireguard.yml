@@ -55,7 +55,9 @@ jobs:
         run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
 
       - name: Test WireGuard configuration and build APK
-        run: ./gradlew --no-daemon --console=plain :app:testDebugUnitTest --tests 'com.streamvault.app.vpn.*' :app:assembleDebug
+        run: |
+          node scripts/test-wireguard-phone.cjs
+          ./gradlew --no-daemon --console=plain :app:testDebugUnitTest --tests 'com.streamvault.app.vpn.*' :app:assembleDebug
 
       - name: Prepare APK
         run: |

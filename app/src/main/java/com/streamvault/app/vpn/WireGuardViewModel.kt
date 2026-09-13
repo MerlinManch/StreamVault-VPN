@@ -2,6 +2,13 @@ package com.streamvault.app.vpn
 
 import android.app.Application
 import android.net.Uri
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.graphics.Bitmap
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.qrcode.QRCodeWriter
+import java.net.Inet4Address
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamvault.app.R
@@ -20,12 +27,81 @@ internal data class VpnProfilesState(
     val importFinished: Int = 0
 )
 
+internal data class WireGuardPairingState(val qr: Bitmap? = null, val error: Int? = null)
+
 internal class WireGuardViewModel(application: Application) : AndroidViewModel(application) {
     private val store = WireGuardProfileStore(application)
     private val mutex = Mutex()
     private val mutableState = MutableStateFlow(VpnProfilesState())
     val state = mutableState.asStateFlow()
     val status = WireGuardForegroundService.status
+
+    private val pairingLock = Any()
+    private var pairingGeneration = 0
+    private var pairingServer: WireGuardPairingServer? = null
+    private val mutablePairing = MutableStateFlow(WireGuardPairingState())
+    val pairing = mutablePairing.asStateFlow()
+
+    fun startPairing() {
+        stopPairing()
+        val generation = synchronized(pairingLock) { pairingGeneration }
+        viewModelScope.launch(Dispatchers.IO) {
+            synchronized(pairingLock) {
+                if (generation != pairingGeneration) return@launch
+                try {
+                    val app = getApplication<Application>()
+                    val manager = app.getSystemService(ConnectivityManager::class.java)
+                    // Select a physical Wi-Fi/Ethernet address, never a VPN/tunnel interface.
+                    val address = manager.allNetworks.asSequence().filter { network ->
+                        val caps = manager.getNetworkCapabilities(network)
+                        caps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == false &&
+                            (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))
+                    }.flatMap { manager.getLinkProperties(it)?.linkAddresses.orEmpty().asSequence() }
+                        .map { it.address }.filterIsInstance<Inet4Address>()
+                        .firstOrNull { !it.isLoopbackAddress && !it.isLinkLocalAddress }
+                        ?: error("No LAN address")
+                    val server = WireGuardPairingServer(address,
+                        save = { name, config -> store.add(name, config) },
+                        saved = { viewModelScope.launch {
+                            val current = generation == synchronized(pairingLock) { pairingGeneration }
+                            if (current) stopPairing()
+                            operation(importing = current) { }
+                        } },
+                        expired = { viewModelScope.launch {
+                            if (generation == synchronized(pairingLock) { pairingGeneration }) {
+                                stopPairing()
+                                mutablePairing.value = WireGuardPairingState(error = R.string.wg_pairing_expired)
+                            }
+                        } })
+                    pairingServer = server
+                    val size = 384
+                    val matrix = QRCodeWriter().encode(server.url, BarcodeFormat.QR_CODE, size, size,
+                        mapOf(EncodeHintType.MARGIN to 2))
+                    val pixels = IntArray(size * size) { i ->
+                        if (matrix[i % size, i / size]) android.graphics.Color.BLACK else android.graphics.Color.WHITE
+                    }
+                    mutablePairing.value = WireGuardPairingState(
+                        qr = Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888))
+                } catch (_: Exception) {
+                    pairingServer?.close()
+                    pairingServer = null
+                    mutablePairing.value = WireGuardPairingState(error = R.string.wg_pairing_error)
+                }
+            }
+        }
+    }
+
+    fun stopPairing() {
+        synchronized(pairingLock) {
+            pairingGeneration++
+            pairingServer?.close()
+            pairingServer = null
+            mutablePairing.value = WireGuardPairingState()
+        }
+    }
+
+    override fun onCleared() { stopPairing(); super.onCleared() }
 
     init { operation { } }
 

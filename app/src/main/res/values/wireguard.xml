@@ -21,8 +21,8 @@
     <string name="wg_name">Profile name</string>
     <string name="wg_config">Paste WireGuard configuration</string>
     <string name="wg_save">Save configuration</string>
-    <string name="wg_import_file">Import .conf file</string>
-    <string name="wg_import_hint">Enter a name, then choose a .conf file or paste its contents. Profiles are encrypted on this device.</string>
+    <string name="wg_import_file">Select a file on this device</string>
+    <string name="wg_import_hint">Scan the QR code with your phone, then paste your configuration or select a .conf file.</string>
     <string name="wg_lifecycle">Stays active in the background. Reconnect after a device restart or if Android stops the app. Disconnecting restores the normal connection. Android allows one VPN at a time.</string>
     <string name="wg_error_permission">VPN permission was denied or is unavailable on this device.</string>
     <string name="wg_error_connect">Could not start the VPN. Check the profile, network and Android VPN permission.</string>
@@ -31,5 +31,10 @@
     <string name="wg_error_dns">Add at least one DNS server address to the Interface section.</string>
     <string name="wg_error_size">Configuration exceeds the 64 KiB limit.</string>
     <string name="wg_error_storage">Could not read or save the profile. Check the file and use a name up to 64 characters. Maximum 32 profiles.</string>
-    <string name="wg_error_picker">No file picker available. Paste the configuration below instead.</string>
+    <string name="wg_error_picker">No file picker on this device. Select the file on your phone using the QR code.</string>
+    <string name="wg_phone">Add WireGuard from your phone</string>
+    <string name="wg_phone_hint">Connect phone and TV to the same Wi-Fi. Paste the configuration or select a file on your phone, then send it to the TV. The QR code expires after 5 minutes.</string>
+    <string name="wg_pairing_retry">Show a new QR code</string>
+    <string name="wg_pairing_error">Could not start phone import. Check Wi-Fi/LAN and try again.</string>
+    <string name="wg_pairing_expired">QR code expired. Please show a new code.</string>
 </resources>

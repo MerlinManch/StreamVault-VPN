@@ -77,6 +77,7 @@ fun PremiumDialog(
     heightFraction: Float? = 0.88f,
     bodyHeightFraction: Float = 0.5f,
     bodyScrollHint: String? = null,
+    scrollOnDirectionalKey: Boolean = true,
     initialBodyFocusRequester: androidx.compose.ui.focus.FocusRequester? = null,
     content: @Composable ColumnScope.() -> Unit,
     footer: @Composable RowScope.() -> Unit = {}
@@ -143,6 +144,7 @@ fun PremiumDialog(
                             PremiumDialogScrollableBody(
                                 maxHeight = maxDialogBodyHeight,
                                 scrollHint = bodyScrollHint,
+                                scrollOnDirectionalKey = scrollOnDirectionalKey,
                                 initialFocusRequester = initialBodyFocusRequester,
                                 content = content,
                             )
@@ -210,6 +212,7 @@ fun PremiumDialog(
                             PremiumDialogScrollableBody(
                                 maxHeight = maxDialogBodyHeight,
                                 scrollHint = bodyScrollHint,
+                                scrollOnDirectionalKey = scrollOnDirectionalKey,
                                 initialFocusRequester = initialBodyFocusRequester,
                                 content = content,
                             )
@@ -231,6 +234,7 @@ fun PremiumDialog(
 private fun ColumnScope.PremiumDialogScrollableBody(
     maxHeight: androidx.compose.ui.unit.Dp,
     scrollHint: String?,
+    scrollOnDirectionalKey: Boolean,
     initialFocusRequester: androidx.compose.ui.focus.FocusRequester?,
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -251,7 +255,7 @@ private fun ColumnScope.PremiumDialogScrollableBody(
             .fillMaxWidth()
             .focusGroup()
             .onPreviewKeyEvent { event ->
-                if (event.nativeKeyEvent.action != AndroidKeyEvent.ACTION_DOWN) {
+                if (!scrollOnDirectionalKey || event.nativeKeyEvent.action != AndroidKeyEvent.ACTION_DOWN) {
                     return@onPreviewKeyEvent false
                 }
                 val delta = when (event.nativeKeyEvent.keyCode) {

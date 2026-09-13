@@ -11,10 +11,16 @@ Based on StreamVault. Originalentwickler: **David Nashash (Davidona)**.
 
 ## Benutzung auf Fire TV / Android TV
 
-1. Einstellungen → Datenschutz / Privacy → **WireGuard VPN** öffnen.
-2. **Profil hinzufügen** wählen, einen Namen vergeben und eine `.conf`-Datei
-   importieren oder den Konfigurationstext einfügen. Falls Fire OS keine
-   Dateiauswahl anbietet, ist das Einfügen weiterhin verfügbar.
+1. Einstellungen → Privatsphäre / Privacy → **WireGuard VPN** öffnen.
+2. **Profil hinzufügen** wählen und den QR-Code mit dem Handy scannen, wie beim
+   Xtream-Setup. Handy und TV müssen im selben WLAN/LAN sein. Auf der Handyseite
+   einen Namen eingeben und entweder die Proton-/WireGuard-`.conf`-Datei auswählen
+   oder den vollständigen Konfigurationstext einfügen. **An TV senden** drücken.
+   Nach erfolgreichem Speichern schließt sich der QR-Dialog auf dem TV.
+   Alternativ kann **Datei auf diesem Gerät auswählen** verwendet werden, wenn
+   dort eine Dateiauswahl verfügbar ist; das Profil heißt dann „WireGuard“.
+   Auf dem TV gibt es keine Texteingabefelder mehr: Fokus öffnet keine Tastatur.
+   Vor einem weiteren Import eine aktive VPN-Verbindung trennen.
 3. Beim Profil **Verbinden** wählen und die Android-VPN-Freigabe bestätigen.
 4. Nach **Tunnel aktiv** wie gewohnt in StreamVault navigieren und abspielen.
    Der zusätzlich angezeigte Handshake bestätigt, dass der VPN-Server geantwortet
@@ -28,6 +34,23 @@ Based on StreamVault. Originalentwickler: **David Nashash (Davidona)**.
 Es ist keine separate WireGuard-App und kein Root-Zugriff nötig. Es wird ein
 bereits vorhandenes, gültiges VPN-Profil benötigt; diese App stellt keinen
 VPN-Server bereit. Fire OS muss Androids `VpnService` und Freigabedialog anbieten.
+
+## QR-Import und Fernbedienung
+
+- Der QR-Code öffnet eine lokale Handyseite mit Texteingabe und Dateiauswahl.
+  Kein Cloud-Dienst; wie beim ursprünglichen Xtream-Setup erfolgt die Übertragung
+  über HTTP im lokalen Netz. Nur in einem vertrauenswürdigen WLAN verwenden.
+- Der Server bindet nur an eine physische WLAN-/Ethernet-IPv4-Adresse, nicht an
+  eine VPN-Schnittstelle. Gastnetze mit Geräteisolation verhindern die Verbindung.
+- Zufälliges Sitzungstoken, fünf Minuten Gültigkeit, nur ein erfolgreicher Import.
+  Abbrechen, Verlassen des Dialogs und ein neuer QR-Code schließen die alte Sitzung.
+  Ungültige Konfigurationen können innerhalb derselben Sitzung korrigiert werden.
+- Dateien werden am Handy als Text gelesen und über denselben Importweg validiert.
+  Keine Konfiguration in URL, Logs, HTML-Antworten oder GitHub; Speicherung auf
+  dem TV weiterhin mit Android Keystore verschlüsselt.
+- VPN-Dialoge werden einzeln geöffnet. Hoch/Runter bewegt den Fokus; der Scrollbereich
+  folgt dem fokussierten Element ohne den zusätzlichen 240-Pixel-Sprung. Die
+  vorhandenen Dialoge außerhalb der VPN-Funktion behalten ihr Verhalten.
 
 ## Routing und Lebensdauer
 
@@ -84,7 +107,10 @@ Die folgenden Prüfungen benötigen ein echtes Fire-TV-/Android-TV-Gerät und ei
 funktionierendes Testprofil; sie werden nicht durch einen erfolgreichen Build
 oder die Parser-Tests ersetzt:
 
-- Import per Datei und Texteingabe; D-Pad-Fokus, Zurück, Abbruch, Löschbestätigung.
+- Handy-QR: Datei und Text, gleicher WLAN-Zugang, falsches Profil korrigieren,
+  Sitzung erneuern/ablaufen lassen und Abbruch testen.
+- D-Pad ohne Tastatur-Popups; Profil-Liste mit mehreren Einträgen bis zum Ende
+  und zurück navigieren; Zurück, Abbruch, Löschbestätigung prüfen.
 - Freigabe bestätigen/ablehnen, erneut verbinden, Profilwechsel, VPN widerrufen.
 - Server-Handshake und IPTV-Wiedergabe einschließlich EPG und Downloads prüfen.
 - IPv4/IPv6 und DNS über einen kontrollierten VPN-Server prüfen; andere Apps
