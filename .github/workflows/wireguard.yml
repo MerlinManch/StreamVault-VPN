@@ -34,12 +34,11 @@ jobs:
           git -C "$IMPORT_DIR" fetch --depth=1 origin "$SOURCE_COMMIT"
           test "$(git -C "$IMPORT_DIR" rev-parse FETCH_HEAD)" = "$SOURCE_COMMIT"
           git -C "$IMPORT_DIR" archive FETCH_HEAD | tar -x -C "$GITHUB_WORKSPACE"
-          git apply --check bootstrap/wireguard.patch
+          git apply --check --whitespace=error bootstrap/wireguard.patch
           git apply bootstrap/wireguard.patch
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
-          git diff --cached --check
           git commit -m 'Import StreamVault with app-scoped WireGuard VPN'
           git push origin HEAD:main
 
