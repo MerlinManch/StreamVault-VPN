@@ -1,5 +1,19 @@
 # WireGuard validation
 
+## VPN controls — 2026-09-14
+
+- The user confirmed the preceding QR/import version working on their Fire TV.
+- Added persistent autostart, kill-switch and top-menu status switches.
+- Verified source commit: `9930b5e1fff83a5d3c5e1d92e5b280b17121f5ea`.
+- [GitHub Actions run 34860670485](https://github.com/MerlinManch/StreamVault-VPN/actions/runs/34860670485) completed successfully.
+- APK assembly and all 29 targeted VPN tests passed (18 existing tests plus 11 new regression tests).
+- The phone-page JavaScript handler checks also passed.
+- Artifacts: `StreamVault-VPN-debug` and `WireGuard-test-reports`.
+- New controls, VPN-bound socket/DNS behavior and leak prevention still require real Fire TV testing with a controlled provider/VPN endpoint.
+- No local execution environment was available during this revision. See [VPN_CONTROLS.md](VPN_CONTROLS.md) for behavior and the device checklist.
+
+---
+
 Date: 2026-09-13
 
 Code imported in commit `fa687168f3d012fc3ef2eb5050f7c7f5c7643c14`, based on upstream `f86d4aeef21de4524a986c4ae87ac5f58ac42d25`.
