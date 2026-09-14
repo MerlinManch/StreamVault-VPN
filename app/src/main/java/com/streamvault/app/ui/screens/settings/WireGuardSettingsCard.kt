@@ -61,6 +61,7 @@ internal fun WireGuardSettingsCard(
     }
     val pairing by model.pairing.collectAsStateWithLifecycle()
     val addFocus = remember { FocusRequester() }
+    val optionsFocus = remember { FocusRequester() }
     val retryFocus = remember { FocusRequester() }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val id = pendingId
@@ -94,12 +95,13 @@ internal fun WireGuardSettingsCard(
             subtitle = stringResource(R.string.wg_scope),
             widthFraction = 0.7f,
             scrollOnDirectionalKey = false,
-            initialBodyFocusRequester = addFocus,
+            initialBodyFocusRequester = optionsFocus,
             onDismissRequest = { showProfiles = false; onClosed() },
             content = {
                 WireGuardToggleRow(
                     stringResource(R.string.wg_auto), stringResource(R.string.wg_auto_hint),
-                    options.autoConnect, { model.setAutoConnect(it) }, enabled = state.profiles.isNotEmpty())
+                    options.autoConnect, { model.setAutoConnect(it) }, enabled = state.profiles.isNotEmpty(),
+                    modifier = Modifier.focusRequester(optionsFocus))
                 Text(stringResource(R.string.wg_auto_profile,
                     state.profiles.firstOrNull { it.id == options.profileId }?.name
                         ?: stringResource(R.string.wg_auto_profile_none)), color = OnSurface)
@@ -229,13 +231,13 @@ internal fun WireGuardSettingsCard(
 /** Exactly one focus target per switch; moving the focus never changes its value. */
 @Composable
 private fun WireGuardToggleRow(label: String, hint: String, checked: Boolean,
-    onToggle: (Boolean) -> Unit, enabled: Boolean = true) {
+    onToggle: (Boolean) -> Unit, enabled: Boolean = true, modifier: Modifier = Modifier) {
     com.streamvault.app.ui.interaction.TvClickableSurface(
         onClick = { if (enabled) onToggle(!checked) },
         colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
             containerColor = androidx.compose.ui.graphics.Color.Transparent,
             focusedContainerColor = com.streamvault.app.ui.theme.Primary.copy(alpha = 0.18f)),
-        modifier = Modifier.fillMaxWidth()
+        modifier = modifier.fillMaxWidth()
     ) {
         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
