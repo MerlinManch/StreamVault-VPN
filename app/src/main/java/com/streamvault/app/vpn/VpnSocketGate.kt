@@ -28,7 +28,7 @@ internal class VpnSocketGate {
         if (required && transport == null) throw IOException("VPN kill switch: connection blocked")
     }
 
-    val dns = Dns { hostname ->
+    val dns = vpnDns { hostname ->
         val delegate = synchronized(this) {
             check()
             if (required) transport!!.dns else Dns.SYSTEM
@@ -58,4 +58,8 @@ internal class VpnSocketGate {
             } catch (error: Exception) { socket.close(); throw error }
         }
     }
+}
+
+internal fun vpnDns(resolve: (String) -> List<InetAddress>): Dns = object : Dns {
+    override fun lookup(hostname: String): List<InetAddress> = resolve(hostname)
 }

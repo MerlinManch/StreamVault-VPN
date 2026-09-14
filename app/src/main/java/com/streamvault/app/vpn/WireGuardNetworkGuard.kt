@@ -27,7 +27,7 @@ internal object WireGuardNetworkGuard : Interceptor, PlaybackNetworkPolicy {
     @Synchronized fun connected(value: Network?) {
         if (network == value) return
         network = value
-        transport = value?.let { VpnSocketGate.Transport(it.socketFactory, Dns { host -> it.getAllByName(host).toList() }) }
+        transport = value?.let { VpnSocketGate.Transport(it.socketFactory, vpnDns { host -> it.getAllByName(host).toList() }) }
         gate.configure(required, transport)
         mutableChanges.value += 1
     }

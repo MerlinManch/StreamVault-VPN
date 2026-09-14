@@ -49,7 +49,7 @@ class VpnSocketGateTest {
         val factory = CountingFactory()
         val expected = InetAddress.getByAddress(byteArrayOf(10, 2, 3, 4))
         var dnsCalls = 0
-        gate.configure(true, VpnSocketGate.Transport(factory, Dns { dnsCalls++; listOf(expected) }))
+        gate.configure(true, VpnSocketGate.Transport(factory, vpnDns { dnsCalls++; listOf(expected) }))
         gate.socketFactory.createSocket().use { assertEquals(1, factory.created) }
         assertEquals(listOf(expected), gate.dns.lookup("provider.invalid"))
         assertEquals(1, dnsCalls)
@@ -58,7 +58,7 @@ class VpnSocketGateTest {
     @Test fun vpnLossClosesExistingSocketAndNeverFallsBack() {
         val gate = VpnSocketGate()
         val factory = CountingFactory()
-        gate.configure(true, VpnSocketGate.Transport(factory, Dns { emptyList() }))
+        gate.configure(true, VpnSocketGate.Transport(factory, vpnDns { emptyList() }))
         val socket = gate.socketFactory.createSocket()
         gate.configure(true, null)
         assertTrue(socket.isClosed)
@@ -71,9 +71,9 @@ class VpnSocketGateTest {
         val gate = VpnSocketGate()
         val old = CountingFactory()
         val next = CountingFactory()
-        gate.configure(true, VpnSocketGate.Transport(old, Dns { emptyList() }))
+        gate.configure(true, VpnSocketGate.Transport(old, vpnDns { emptyList() }))
         val socket = gate.socketFactory.createSocket()
-        gate.configure(true, VpnSocketGate.Transport(next, Dns { emptyList() }))
+        gate.configure(true, VpnSocketGate.Transport(next, vpnDns { emptyList() }))
         assertTrue(socket.isClosed)
         gate.socketFactory.createSocket().close()
         assertEquals(1, old.created)
@@ -82,7 +82,7 @@ class VpnSocketGateTest {
 
     @Test fun unchangedHealthDoesNotInterruptTheStream() {
         val gate = VpnSocketGate()
-        val transport = VpnSocketGate.Transport(CountingFactory(), Dns { emptyList() })
+        val transport = VpnSocketGate.Transport(CountingFactory(), vpnDns { emptyList() })
         gate.configure(true, transport)
         gate.socketFactory.createSocket().use {
             gate.configure(true, transport)
