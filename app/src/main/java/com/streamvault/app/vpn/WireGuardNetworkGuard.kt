@@ -1,0 +1,44 @@
+package com.streamvault.app.vpn
+
+import android.content.Context
+import android.net.Network
+import com.streamvault.player.playback.PlaybackNetworkPolicy
+import okhttp3.Dns
+import okhttp3.Interceptor
+import okhttp3.Response
+
+internal object WireGuardNetworkGuard : Interceptor, PlaybackNetworkPolicy {
+    private val mutableChanges = kotlinx.coroutines.flow.MutableStateFlow(0L)
+    override val changes: kotlinx.coroutines.flow.Flow<Long> = mutableChanges
+    val gate = VpnSocketGate()
+    private var required = false
+    private var network: Network? = null
+    private var transport: VpnSocketGate.Transport? = null
+
+    @Synchronized fun install(context: Context) {
+        setRequired(WireGuardPreferences.get(context).state.value.killSwitch)
+    }
+    @Synchronized fun setRequired(value: Boolean) {
+        val changed = required != value
+        required = value
+        gate.configure(required, transport)
+        if (changed) mutableChanges.value += 1
+    }
+    @Synchronized fun connected(value: Network?) {
+        if (network == value) return
+        network = value
+        transport = value?.let { VpnSocketGate.Transport(it.socketFactory, Dns { host -> it.getAllByName(host).toList() }) }
+        gate.configure(required, transport)
+        mutableChanges.value += 1
+    }
+    override fun intercept(chain: Interceptor.Chain): Response {
+        gate.check()
+        return chain.proceed(chain.request())
+    }
+    @Synchronized override fun checkPlayback(uri: android.net.Uri) {
+        gate.check()
+        if (required && uri.scheme?.lowercase() !in setOf("http", "https", "file", "content", "asset", "android.resource", "data")) {
+            throw java.io.IOException("VPN kill switch: unsupported playback transport")
+        }
+    }
+}

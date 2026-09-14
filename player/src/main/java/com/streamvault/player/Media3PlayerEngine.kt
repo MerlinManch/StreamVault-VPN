@@ -347,6 +347,15 @@ class Media3PlayerEngine @Inject constructor(
 
     private fun startEngineCollectors() {
         if (isDisposed) return
+        okHttpClient.interceptors.filterIsInstance<com.streamvault.player.playback.PlaybackNetworkPolicy>().forEach { policy ->
+            scope.launch {
+                policy.changes.collectLatest {
+                    val current = lastStreamInfo ?: return@collectLatest
+                    try { policy.checkPlayback(android.net.Uri.parse(current.url)) }
+                    catch (_: java.io.IOException) { stop() }
+                }
+            }
+        }
         scope.launch {
             liveTimeshiftManager.state.collectLatest {
                 syncTimeshiftState()
@@ -778,7 +787,8 @@ class Media3PlayerEngine @Inject constructor(
             .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
             .build()
         val subtitleSource = androidx.media3.exoplayer.source.SingleSampleMediaSource.Factory(
-            androidx.media3.datasource.DefaultDataSource.Factory(context)
+            androidx.media3.datasource.DefaultDataSource.Factory(context,
+                androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(okHttpClient))
         ).createMediaSource(subtitleConfig, C.TIME_UNSET)
         val merged = androidx.media3.exoplayer.source.MergingMediaSource(mainMediaSource, subtitleSource)
 

@@ -9,6 +9,9 @@ Based on StreamVault. Originalentwickler: **David Nashash (Davidona)**.
 - WireGuard Tunnel Library `com.wireguard.android:tunnel:1.0.20260102`:
   https://git.zx2c4.com/wireguard-android/about/ (Apache-2.0).
 
+Die neuen Schalter für Autostart, Kill-Switch und VPN-Menüstatus sind in
+[VPN_CONTROLS.md](VPN_CONTROLS.md) beschrieben.
+
 ## Benutzung auf Fire TV / Android TV
 
 1. Einstellungen → Privatsphäre / Privacy → **WireGuard VPN** öffnen.
@@ -69,10 +72,11 @@ VPN-Server bereit. Fire OS muss Androids `VpnService` und Freigabedialog anbiete
 - Der VPN-Dienst läuft während der Nutzung und im Hintergrund weiter, auch für
   Downloads und Aufnahmen innerhalb der App. Das Schließen eines Dialogs oder
   der Wechsel zum Player trennt ihn nicht.
-- Nach Neustart, Prozessbeendigung oder Widerruf der VPN-Freigabe muss man erneut
-  verbinden. Kein automatischer Boot-Start, kein Android-Always-on und kein
-  dauerhafter Kill-Switch. Beim Trennen oder Beenden des VPN-Diensts gilt wieder
-  die normale Netzwerkverbindung. Vor einem Streamstart verbinden; bestehende
+- Mit aktiviertem Autostart wird beim nächsten Öffnen der App das gewählte Profil
+  verbunden. Nach Widerruf muss die Android-Freigabe erneut manuell bestätigt werden.
+  Kein automatischer Boot-Start und kein Android-Always-on. Der neue App-Kill-Switch
+  hält die internen Provider-HTTP-Zugriffe auch nach dem Trennen gesperrt; ausgeschaltet
+  gilt wieder die normale Netzwerkverbindung. Vor einem Streamstart verbinden; bestehende
   Streams bei Bedarf nach dem Verbinden neu starten.
 - Android verwaltet jeweils ein VPN. Die Systemfreigabe kann ein anderes VPN
   ersetzen. Andere Apps, externe Player, Plugin-Prozesse in anderen Apps und

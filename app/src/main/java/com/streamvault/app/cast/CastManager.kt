@@ -117,6 +117,7 @@ class CastManager @Inject constructor(
         .build()
 
     suspend fun startCasting(request: CastMediaRequest): CastStartResult {
+        if (com.streamvault.app.vpn.WireGuardPreferences.get(context).state.value.killSwitch) return CastStartResult.UNAVAILABLE
         ensureInitialized()
         val resolvedContext = castContext ?: return CastStartResult.UNAVAILABLE
         if (!isRequestSupported(request)) {
@@ -167,6 +168,7 @@ class CastManager @Inject constructor(
     }
 
     private fun loadMedia(session: CastSession, request: CastMediaRequest): Boolean {
+        if (com.streamvault.app.vpn.WireGuardPreferences.get(context).state.value.killSwitch) return false
         val remoteMediaClient = session.remoteMediaClient ?: run {
             _playbackEvents.tryEmit(CastPlaybackEvent.ReceiverUnavailable(request.title))
             return false

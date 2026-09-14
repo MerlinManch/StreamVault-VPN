@@ -7,6 +7,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.asImageBitmap
@@ -39,11 +41,17 @@ import com.streamvault.app.vpn.WireGuardForegroundService
 import com.streamvault.app.vpn.WireGuardViewModel
 
 @Composable
-internal fun WireGuardSettingsCard(model: WireGuardViewModel = viewModel()) {
+internal fun WireGuardSettingsCard(
+    model: WireGuardViewModel = viewModel(),
+    openImmediately: Boolean = false,
+    showEntry: Boolean = true,
+    onClosed: () -> Unit = {}
+) {
     val context = LocalContext.current
     val state by model.state.collectAsStateWithLifecycle()
     val status by model.status.collectAsStateWithLifecycle()
-    var showProfiles by rememberSaveable { mutableStateOf(false) }
+    val options by model.options.collectAsStateWithLifecycle()
+    var showProfiles by rememberSaveable { mutableStateOf(openImmediately) }
     var showImport by rememberSaveable { mutableStateOf(false) }
     var pendingId by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -75,7 +83,7 @@ internal fun WireGuardSettingsCard(model: WireGuardViewModel = viewModel()) {
         VpnPhase.DISCONNECTING -> R.string.wg_disconnecting
         VpnPhase.ERROR -> R.string.wg_error_connect
     })
-    ClickableSettingsRow(stringResource(R.string.wg_title), statusText, { showProfiles = true })
+    if (showEntry) ClickableSettingsRow(stringResource(R.string.wg_title), statusText, { showProfiles = true })
     if (showProfiles && !showImport && deleteId == null) {
         PremiumDialog(
             title = stringResource(R.string.wg_title),
@@ -83,9 +91,26 @@ internal fun WireGuardSettingsCard(model: WireGuardViewModel = viewModel()) {
             widthFraction = 0.7f,
             scrollOnDirectionalKey = false,
             initialBodyFocusRequester = addFocus,
-            onDismissRequest = { showProfiles = false },
+            onDismissRequest = { showProfiles = false; onClosed() },
             content = {
+                WireGuardToggleRow(
+                    stringResource(R.string.wg_auto), stringResource(R.string.wg_auto_hint),
+                    options.autoConnect, { model.setAutoConnect(it) }, enabled = state.profiles.isNotEmpty())
+                Text(stringResource(R.string.wg_auto_profile,
+                    state.profiles.firstOrNull { it.id == options.profileId }?.name
+                        ?: stringResource(R.string.wg_auto_profile_none)), color = OnSurface)
+                WireGuardToggleRow(
+                    stringResource(R.string.wg_kill), stringResource(R.string.wg_kill_hint),
+                    options.killSwitch, { model.setKillSwitch(it) })
+                if (options.killSwitch) Text(stringResource(R.string.wg_kill_external_hint), color = OnSurface)
+                if (options.killSwitch && !status.connected) {
+                    Text(stringResource(R.string.wg_blocked), color = OnSurface)
+                }
+                WireGuardToggleRow(
+                    stringResource(R.string.wg_status_toggle), stringResource(R.string.wg_status_hint),
+                    options.showStatus, { model.setShowStatus(it) })
                 Text(statusText, color = OnSurface)
+                status.message?.let { Text(stringResource(it), color = OnSurface) }
                 if (status.phase == VpnPhase.UP) {
                     Text(stringResource(if (status.handshakeAt > 0) R.string.wg_handshake else R.string.wg_waiting),
                         color = OnSurface)
@@ -120,6 +145,10 @@ internal fun WireGuardSettingsCard(model: WireGuardViewModel = viewModel()) {
                                 }
                             })
                         PremiumDialogActionButton(
+                            label = stringResource(if (options.profileId == profile.id) R.string.wg_auto_profile_selected else R.string.wg_auto_profile_select),
+                            enabled = !state.busy,
+                            onClick = { model.selectProfile(profile.id) })
+                        PremiumDialogActionButton(
                             label = stringResource(R.string.wg_delete),
                             enabled = !state.busy && !status.occupied && pendingId == null,
                             onClick = { deleteId = profile.id })
@@ -128,7 +157,7 @@ internal fun WireGuardSettingsCard(model: WireGuardViewModel = viewModel()) {
                 Text(stringResource(R.string.wg_lifecycle), color = OnSurface)
             },
             footer = {
-                PremiumDialogFooterButton(stringResource(R.string.wg_close), onClick = { showProfiles = false })
+                PremiumDialogFooterButton(stringResource(R.string.wg_close), onClick = { showProfiles = false; onClosed() })
             }
         )
     }
@@ -189,5 +218,27 @@ internal fun WireGuardSettingsCard(model: WireGuardViewModel = viewModel()) {
             },
             footer = { PremiumDialogFooterButton(stringResource(R.string.wg_cancel), onClick = { deleteId = null }) }
         )
+    }
+}
+
+/** Exactly one focus target per switch; moving the focus never changes its value. */
+@Composable
+private fun WireGuardToggleRow(label: String, hint: String, checked: Boolean,
+    onToggle: (Boolean) -> Unit, enabled: Boolean = true) {
+    com.streamvault.app.ui.interaction.TvClickableSurface(
+        onClick = { if (enabled) onToggle(!checked) },
+        colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+            containerColor = androidx.compose.ui.graphics.Color.Transparent,
+            focusedContainerColor = com.streamvault.app.ui.theme.Primary.copy(alpha = 0.18f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text(label, color = OnSurface)
+                Text(hint, color = OnSurface, style = androidx.tv.material3.MaterialTheme.typography.bodySmall)
+            }
+            androidx.compose.material3.Switch(checked = checked, onCheckedChange = null, enabled = enabled)
+        }
     }
 }

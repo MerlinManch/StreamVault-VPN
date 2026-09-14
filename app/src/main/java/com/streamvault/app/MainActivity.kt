@@ -197,6 +197,7 @@ class MainActivity : ComponentActivity() {
                 LocalAppTimeFormat provides appTimeFormat
             ) {
                 StreamVaultTheme {
+                    androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
                     when (val state = databaseStartupState) {
                         DatabaseStartupState.Opening -> DatabaseStartupScreen(state = state)
                         is DatabaseStartupState.Failed -> DatabaseStartupScreen(
@@ -217,6 +218,8 @@ class MainActivity : ComponentActivity() {
                             AppNavigation(mainActivity = this@MainActivity)
                         }
                     }
+                    com.streamvault.app.ui.screens.settings.WireGuardAppOverlay()
+                    }
                 }
             }
         }
@@ -225,6 +228,11 @@ class MainActivity : ComponentActivity() {
         // Compatibility instrumentation does not create this activity, so it cannot be blocked
         // by a full schema open while Android is still starting the instrumented process.
         databaseStartupCoordinator.start()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        com.streamvault.app.vpn.WireGuardForegroundService.autoConnect(this)
     }
 
     override fun onResume() {

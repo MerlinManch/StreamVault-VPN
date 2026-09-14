@@ -35,6 +35,17 @@ internal class WireGuardViewModel(application: Application) : AndroidViewModel(a
     private val mutableState = MutableStateFlow(VpnProfilesState())
     val state = mutableState.asStateFlow()
     val status = WireGuardForegroundService.status
+    private val preferences = WireGuardPreferences.get(application)
+    val options = preferences.state
+
+    fun setAutoConnect(value: Boolean) = changeOptions { it.copy(autoConnect = value,
+        profileId = it.profileId ?: state.value.profiles.firstOrNull()?.id) }
+    fun setKillSwitch(value: Boolean) = changeOptions { it.copy(killSwitch = value) }
+    fun setShowStatus(value: Boolean) = changeOptions { it.copy(showStatus = value) }
+    fun selectProfile(id: String) = changeOptions { it.copy(profileId = id) }
+    private fun changeOptions(transform: (WireGuardOptions) -> WireGuardOptions) {
+        try { preferences.update(transform) } catch (_: Exception) { reportError(R.string.wg_error_storage) }
+    }
 
     private val pairingLock = Any()
     private var pairingGeneration = 0
@@ -127,6 +138,7 @@ internal class WireGuardViewModel(application: Application) : AndroidViewModel(a
     fun delete(id: String) = operation {
         check(!status.value.occupied || status.value.profileId != id)
         store.delete(id)
+        if (options.value.profileId == id) preferences.update { it.copy(profileId = null, autoConnect = false) }
     }
 
     fun reportError(message: Int) { mutableState.value = mutableState.value.copy(error = message) }

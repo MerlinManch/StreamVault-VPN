@@ -311,6 +311,18 @@ private fun TopNavigationBar(
                     )
                 }
             }
+            val vpnOptions by com.streamvault.app.vpn.WireGuardPreferences.get(LocalContext.current)
+                .state.collectAsStateWithLifecycle()
+            val vpnStatus by com.streamvault.app.vpn.WireGuardForegroundService.status.collectAsStateWithLifecycle()
+            if (vpnOptions.showStatus) {
+                TopNavigationButton(
+                    label = stringResource(if (vpnStatus.connected) R.string.wg_nav_connected else R.string.wg_nav_disconnected),
+                    icon = Icons.Default.Info,
+                    selected = vpnStatus.connected,
+                    focusRequester = remember { FocusRequester() },
+                    onClick = { com.streamvault.app.vpn.WireGuardUi.show() }
+                )
+            }
             if (actions != null) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),

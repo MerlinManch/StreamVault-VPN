@@ -54,6 +54,9 @@ class PlayerDataSourceFactoryProvider(
         vodHttpProtocolMode: VodHttpProtocolMode = VodHttpProtocolMode.COMPATIBILITY_HTTP1,
         preload: Boolean = false
     ): Pair<PlayerTimeoutProfile, DataSource.Factory> {
+        baseClient.interceptors.filterIsInstance<PlaybackNetworkPolicy>().forEach {
+            it.checkPlayback(android.net.Uri.parse(streamInfo.url))
+        }
         val profile = PlayerTimeoutProfile.resolve(streamInfo, resolvedStreamType, preload)
         val headers = effectivePlaybackRequestProperties(
             headers = streamInfo.headers,
@@ -89,7 +92,7 @@ class PlayerDataSourceFactoryProvider(
                 .connectTimeout(profile.connectTimeoutMs, TimeUnit.MILLISECONDS)
                 .readTimeout(profile.readTimeoutMs, TimeUnit.MILLISECONDS)
                 .writeTimeout(profile.writeTimeoutMs, TimeUnit.MILLISECONDS)
-                .dns(PlayerDnsPolicy.healthAwareDns(port = port, healthStore = addressHealthStore))
+                .dns(PlayerDnsPolicy.healthAwareDns(port = port, healthStore = addressHealthStore, delegate = baseClient.dns))
                 .eventListener(PlayerAddressHealthEventListener(addressHealthStore))
                 .apply {
                     if (forceHttp1) {
@@ -156,7 +159,7 @@ class PlayerDataSourceFactoryProvider(
     private fun StreamInfo.httpProxy(): Proxy? {
         val host = proxyHost.trim().takeIf { it.isNotBlank() } ?: return null
         val port = proxyPort ?: return null
-        return Proxy(Proxy.Type.HTTP, InetSocketAddress(host, port))
+        return Proxy(Proxy.Type.HTTP, InetSocketAddress.createUnresolved(host, port))
     }
 }
 

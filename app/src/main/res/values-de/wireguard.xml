@@ -23,7 +23,7 @@
     <string name="wg_save">Konfiguration speichern</string>
     <string name="wg_import_file">Datei auf diesem Gerät auswählen</string>
     <string name="wg_import_hint">QR-Code mit dem Handy scannen und dort die Konfiguration einfügen oder eine .conf-Datei auswählen.</string>
-    <string name="wg_lifecycle">Bleibt im Hintergrund aktiv. Nach einem Geräteneustart oder Beenden durch Android erneut verbinden. Trennen stellt die normale Verbindung wieder her. Android erlaubt jeweils ein VPN.</string>
+    <string name="wg_lifecycle">Bleibt im Hintergrund aktiv. Autostart verbindet beim nächsten Öffnen der App erneut. Bei aktivem Kill-Switch bleibt IPTV auch nach dem Trennen gesperrt. Android erlaubt jeweils ein VPN.</string>
     <string name="wg_error_permission">VPN-Freigabe abgelehnt oder auf diesem Gerät nicht verfügbar.</string>
     <string name="wg_error_connect">VPN konnte nicht gestartet werden. Profil, Netzwerk und Android-VPN-Freigabe prüfen.</string>
     <string name="wg_error_config">Ungültige WireGuard-Konfiguration. Schlüssel, Interface-Adresse und Peer-Endpunkt prüfen. Desktop-Skripte werden nicht unterstützt.</string>
@@ -37,4 +37,27 @@
     <string name="wg_pairing_retry">Neuen QR-Code anzeigen</string>
     <string name="wg_pairing_error">QR-Code konnte nicht gestartet werden. WLAN/LAN prüfen und erneut versuchen.</string>
     <string name="wg_pairing_expired">QR-Code abgelaufen. Bitte einen neuen Code anzeigen.</string>
+    <string name="wg_auto">VPN bei App-Start verbinden</string>
+    <string name="wg_auto_hint">Beim Öffnen der App automatisch das gewählte Profil verbinden.</string>
+    <string name="wg_kill">VPN Kill-Switch</string>
+    <string name="wg_kill_hint">IPTV, EPG und Downloads nur über bestätigtes VPN. Ohne VPN bleibt der Zugriff gesperrt.</string>
+    <string name="wg_status_toggle">VPN-Status im App-Menü</string>
+    <string name="wg_status_hint">Zeigt einen anklickbaren VPN-Reiter im oberen Menü.</string>
+    <string name="wg_nav_connected">VPN Verbunden</string>
+    <string name="wg_nav_disconnected">VPN Getrennt</string>
+    <string name="wg_auto_profile">Autostart-Profil: %1$s</string>
+    <string name="wg_auto_profile_none">Noch keines gewählt</string>
+    <string name="wg_auto_profile_select">Für Autostart auswählen</string>
+    <string name="wg_auto_profile_selected">Autostart-Profil ausgewählt</string>
+    <string name="wg_step_profile">Profil wird geladen · Schritt 1 von 3</string>
+    <string name="wg_step_tunnel">VPN-Tunnel wird eingerichtet · Schritt 2 von 3</string>
+    <string name="wg_step_handshake">Antwort des VPN-Servers abwarten · Schritt 3 von 3</string>
+    <string name="wg_connection_timeout">VPN-Verbindung konnte nicht bestätigt werden. Profil und Netzwerk prüfen und erneut verbinden.</string>
+    <string name="wg_connection_lost">VPN-Verbindung unterbrochen. Mit aktivem Kill-Switch ist der IPTV-Zugriff gesperrt.</string>
+    <string name="wg_warning">VPN-Warnung</string>
+    <string name="wg_blocked">Kill-Switch aktiv: IPTV-Zugriff gesperrt, bis das VPN verbunden ist.</string>
+    <string name="wg_select_profile">Bitte zuerst im VPN-Menü ein Profil für den Autostart auswählen.</string>
+    <string name="wg_auto_permission">VPN-Freigabe fehlt. Im VPN-Menü einmal manuell verbinden und die Android-Freigabe bestätigen.</string>
+    <string name="wg_external_blocked">Mit aktivem VPN-Kill-Switch bitte den internen Player verwenden. Externe Player und Cast nutzen nicht dieses App-VPN.</string>
+    <string name="wg_kill_external_hint">Bei aktivem Kill-Switch sind neue Starts externer Player und Cast gesperrt. Bereits extern gestartete Wiedergabe dort beenden.</string>
 </resources>

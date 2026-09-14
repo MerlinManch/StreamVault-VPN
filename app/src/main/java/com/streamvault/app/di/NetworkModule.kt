@@ -56,7 +56,11 @@ object NetworkModule {
             level = loggingLevel
         }
 
+        com.streamvault.app.vpn.WireGuardNetworkGuard.install(context)
         return OkHttpClient.Builder()
+            .socketFactory(com.streamvault.app.vpn.WireGuardNetworkGuard.gate.socketFactory)
+            .dns(com.streamvault.app.vpn.WireGuardNetworkGuard.gate.dns)
+            .addInterceptor(com.streamvault.app.vpn.WireGuardNetworkGuard)
             .cache(
                 Cache(
                     directory = File(context.cacheDir, "streamvault_http_cache"),
