@@ -32,6 +32,9 @@ class PluginMessengerClient @Inject constructor(
         data: Bundle = Bundle(),
         timeoutMillis: Long = DEFAULT_TIMEOUT_MS
     ): Bundle {
+        check(!com.streamvault.app.vpn.WireGuardNetworkGuard.protectionEnabled) {
+            "VPN kill switch: external plugin network access is unavailable"
+        }
         val appContext = context.applicationContext
         val serviceDeferred = CompletableDeferred<Messenger>()
         val responseDeferred = CompletableDeferred<Bundle>()
@@ -88,6 +91,9 @@ class PluginMessengerClient @Inject constructor(
                 }
             }
             try {
+                check(!com.streamvault.app.vpn.WireGuardNetworkGuard.protectionEnabled) {
+                    "VPN kill switch: external plugin network access is unavailable"
+                }
                 service.send(request)
             } catch (error: RemoteException) {
                 throw IllegalStateException("Plugin service did not accept the request", error)

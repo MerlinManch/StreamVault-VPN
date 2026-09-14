@@ -41,7 +41,7 @@ Player DNS sorting delegates to this resolver. External subtitle HTTP uses the
 same client. The player observes protection changes and stops disallowed playback.
 
 The switch applies to StreamVault's own provider network stack, not to Android
-globally or other applications. New external-player and Cast launches are blocked
+globally or other applications. New external-player, Cast and external-plugin requests are blocked
 while it is enabled. Stop playback already running in another app/device there.
 Non-HTTP remote playback transports are rejected with protection enabled because
 they cannot use the protected HTTP stack. Existing QR import remains accessible

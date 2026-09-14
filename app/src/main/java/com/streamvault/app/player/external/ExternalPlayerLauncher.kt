@@ -89,7 +89,7 @@ object ExternalPlayerLauncher {
      * @return the launch result indicating success or the specific failure mode
      */
     fun launch(context: Context, url: String): ExternalPlayerLaunchResult {
-        if (com.streamvault.app.vpn.WireGuardPreferences.get(context).state.value.killSwitch) {
+        if (com.streamvault.app.vpn.WireGuardNetworkGuard.protectionEnabled) {
             return ExternalPlayerLaunchResult.Failed(url, context.getString(com.streamvault.app.R.string.wg_external_blocked))
         }
         val trimmed = url.trim()

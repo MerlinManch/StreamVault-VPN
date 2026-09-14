@@ -12,6 +12,7 @@ internal object WireGuardNetworkGuard : Interceptor, PlaybackNetworkPolicy {
     override val changes: kotlinx.coroutines.flow.Flow<Long> = mutableChanges
     val gate = VpnSocketGate()
     private var required = false
+    val protectionEnabled: Boolean @Synchronized get() = required
     private var network: Network? = null
     private var transport: VpnSocketGate.Transport? = null
 

@@ -59,5 +59,5 @@
     <string name="wg_select_profile">Bitte zuerst im VPN-Menü ein Profil für den Autostart auswählen.</string>
     <string name="wg_auto_permission">VPN-Freigabe fehlt. Im VPN-Menü einmal manuell verbinden und die Android-Freigabe bestätigen.</string>
     <string name="wg_external_blocked">Mit aktivem VPN-Kill-Switch bitte den internen Player verwenden. Externe Player und Cast nutzen nicht dieses App-VPN.</string>
-    <string name="wg_kill_external_hint">Bei aktivem Kill-Switch sind neue Starts externer Player und Cast gesperrt. Bereits extern gestartete Wiedergabe dort beenden.</string>
+    <string name="wg_kill_external_hint">Bei aktivem Kill-Switch sind neue Starts externer Player, Cast und externer Plugins gesperrt. Bereits extern gestartete Wiedergabe dort beenden.</string>
 </resources>
