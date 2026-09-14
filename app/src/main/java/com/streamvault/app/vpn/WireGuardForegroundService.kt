@@ -192,7 +192,7 @@ class WireGuardForegroundService : Service() {
 
         internal fun autoConnect(context: Context) {
             val options = WireGuardPreferences.get(context).state.value
-            if (!options.autoConnect || status.value.occupied) return
+            if (!options.autoConnect || status.value.occupied || WireGuardUi.settingsVisible) return
             val id = options.profileId ?: run { reportFailure(R.string.wg_select_profile); return }
             try {
                 if (VpnService.prepare(context) != null) {

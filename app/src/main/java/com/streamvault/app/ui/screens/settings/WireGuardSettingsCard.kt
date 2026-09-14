@@ -55,6 +55,10 @@ internal fun WireGuardSettingsCard(
     var showImport by rememberSaveable { mutableStateOf(false) }
     var pendingId by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
+    DisposableEffect(showProfiles) {
+        if (showProfiles) com.streamvault.app.vpn.WireGuardUi.settingsVisible = true
+        onDispose { if (showProfiles) com.streamvault.app.vpn.WireGuardUi.settingsVisible = false }
+    }
     val pairing by model.pairing.collectAsStateWithLifecycle()
     val addFocus = remember { FocusRequester() }
     val retryFocus = remember { FocusRequester() }
@@ -136,6 +140,7 @@ internal fun WireGuardSettingsCard(
                             enabled = !status.occupied && pendingId == null && !state.busy,
                             onClick = {
                                 try {
+                                    model.selectProfile(profile.id)
                                     val consent = VpnService.prepare(context)
                                     if (consent == null) WireGuardForegroundService.connect(context, profile.id)
                                     else { pendingId = profile.id; permission.launch(consent) }

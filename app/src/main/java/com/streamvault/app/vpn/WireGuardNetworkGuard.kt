@@ -36,8 +36,10 @@ internal object WireGuardNetworkGuard : Interceptor, PlaybackNetworkPolicy {
         return chain.proceed(chain.request())
     }
     @Synchronized override fun checkPlayback(uri: android.net.Uri) {
+        val scheme = uri.scheme?.lowercase()
+        if (scheme in setOf("file", "content", "asset", "android.resource", "data")) return
         gate.check()
-        if (required && uri.scheme?.lowercase() !in setOf("http", "https", "file", "content", "asset", "android.resource", "data")) {
+        if (required && scheme !in setOf("http", "https")) {
             throw java.io.IOException("VPN kill switch: unsupported playback transport")
         }
     }
