@@ -1,0 +1,3497 @@
+diff --git a/README.md b/README.md
+index bacfd243..d466c35a 100644
+--- a/README.md
++++ b/README.md
+@@ -1,5 +1,11 @@
+ # StreamVault
+ 
++This modified version is **Based on StreamVault**, originally developed by
++**David Nashash (Davidona)**. It adds an app-scoped WireGuard VPN option under
++Settings → Privacy. See [WireGuard setup and build notes](docs/WIREGUARD.md).
++
++**Download the VPN build:** Open [StreamVault VPN APK builds](https://github.com/MerlinManch/StreamVault-VPN/actions/workflows/wireguard.yml), select a successful run and download the `StreamVault-VPN-debug` artifact. It contains the installable APK, its SHA-256 checksum and the source commit. The original StreamVault download links below refer to the upstream app without this extension.
++
+ <p align="center">
+ 	<a href="https://github.com/Davidona/StreamVault-IPTV/releases/latest/download/StreamVault.apk"><img src="https://img.shields.io/badge/Download-StreamVault.apk-2ea44f?style=for-the-badge&logo=android" alt="Download StreamVault APK" /></a>
+ 	<a href="https://github.com/Davidona/StreamVault-IPTV/releases/latest/download/StreamVault.apk"><img src="https://img.shields.io/badge/Downloader-6443624-2563eb?style=for-the-badge&logo=android&logoColor=white" alt="Downloader code 6443624" /></a>
+@@ -213,7 +219,7 @@ Built for Android TV first, StreamVault focuses on the things generic IPTV apps
+ 
+ - [Download latest StreamVault.apk](https://github.com/Davidona/StreamVault-IPTV/releases/latest/download/StreamVault.apk)
+ - On Android TV, use Downloader code `6443624` to get StreamVault.
+-- The app can also detect and download newer releases in-app through GitHub Releases.
++- The VPN build checks the releases of [StreamVault-VPN](https://github.com/MerlinManch/StreamVault-VPN/releases) for in-app updates.
+ - GitHub Actions still runs build and test validation on pushes and pull requests.
+ - GitHub Releases are now published only when the workflow is started manually with `workflow_dispatch`, so versioned releases do not get created by mistake on every push.
+ 
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index d598ddf8..86aefb88 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -521,6 +521,7 @@ dependencies {
+     implementation(libs.room.ktx)
+ 
+     // Networking
++    implementation(libs.wireguard.tunnel)
+     implementation(libs.retrofit)
+     implementation(libs.retrofit.gson)
+     implementation(libs.okhttp)
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index d81869e7..5ad0da6b 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -12,6 +12,7 @@
+     <uses-permission android:name="android.permission.BIND_TV_INPUT" />
+     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
++    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+@@ -203,6 +204,28 @@
+             android:foregroundServiceType="mediaPlayback"
+             android:stopWithTask="false" />
+ 
++        <service
++            android:name=".vpn.WireGuardForegroundService"
++            android:exported="false"
++            android:foregroundServiceType="specialUse">
++            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
++                android:value="User-initiated WireGuard VPN for StreamVault traffic" />
++        </service>
++        <service android:name="com.wireguard.android.backend.GoBackend$VpnService"
++            tools:node="remove" />
++        <service android:name=".vpn.WireGuardTunnelService"
++            android:permission="android.permission.BIND_VPN_SERVICE"
++            android:foregroundServiceType="specialUse"
++            android:exported="false">
++            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
++                android:value="User-initiated WireGuard VPN tunnel" />
++            <intent-filter>
++                <action android:name="android.net.VpnService" />
++            </intent-filter>
++            <meta-data android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON"
++                android:value="false" />
++        </service>
++
+         <meta-data
+             android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
+             android:value="com.streamvault.app.cast.StreamVaultCastOptionsProvider" />
+diff --git a/app/src/main/assets/licenses/wireguard-apache-2.0.txt b/app/src/main/assets/licenses/wireguard-apache-2.0.txt
+new file mode 100644
+index 00000000..de1c647a
+--- /dev/null
++++ b/app/src/main/assets/licenses/wireguard-apache-2.0.txt
+@@ -0,0 +1,205 @@
++WireGuard Android Tunnel Library
++Copyright © 2017-2025 WireGuard LLC. All Rights Reserved.
++https://git.zx2c4.com/wireguard-android/about/
++
++                                 Apache License
++                           Version 2.0, January 2004
++                        http://www.apache.org/licenses/
++
++   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
++
++   1. Definitions.
++
++      "License" shall mean the terms and conditions for use, reproduction,
++      and distribution as defined by Sections 1 through 9 of this document.
++
++      "Licensor" shall mean the copyright owner or entity authorized by
++      the copyright owner that is granting the License.
++
++      "Legal Entity" shall mean the union of the acting entity and all
++      other entities that control, are controlled by, or are under common
++      control with that entity. For the purposes of this definition,
++      "control" means (i) the power, direct or indirect, to cause the
++      direction or management of such entity, whether by contract or
++      otherwise, or (ii) ownership of fifty percent (50%) or more of the
++      outstanding shares, or (iii) beneficial ownership of such entity.
++
++      "You" (or "Your") shall mean an individual or Legal Entity
++      exercising permissions granted by this License.
++
++      "Source" form shall mean the preferred form for making modifications,
++      including but not limited to software source code, documentation
++      source, and configuration files.
++
++      "Object" form shall mean any form resulting from mechanical
++      transformation or translation of a Source form, including but
++      not limited to compiled object code, generated documentation,
++      and conversions to other media types.
++
++      "Work" shall mean the work of authorship, whether in Source or
++      Object form, made available under the License, as indicated by a
++      copyright notice that is included in or attached to the work
++      (an example is provided in the Appendix below).
++
++      "Derivative Works" shall mean any work, whether in Source or Object
++      form, that is based on (or derived from) the Work and for which the
++      editorial revisions, annotations, elaborations, or other modifications
++      represent, as a whole, an original work of authorship. For the purposes
++      of this License, Derivative Works shall not include works that remain
++      separable from, or merely link (or bind by name) to the interfaces of,
++      the Work and Derivative Works thereof.
++
++      "Contribution" shall mean any work of authorship, including
++      the original version of the Work and any modifications or additions
++      to that Work or Derivative Works thereof, that is intentionally
++      submitted to Licensor for inclusion in the Work by the copyright owner
++      or by an individual or Legal Entity authorized to submit on behalf of
++      the copyright owner. For the purposes of this definition, "submitted"
++      means any form of electronic, verbal, or written communication sent
++      to the Licensor or its representatives, including but not limited to
++      communication on electronic mailing lists, source code control systems,
++      and issue tracking systems that are managed by, or on behalf of, the
++      Licensor for the purpose of discussing and improving the Work, but
++      excluding communication that is conspicuously marked or otherwise
++      designated in writing by the copyright owner as "Not a Contribution."
++
++      "Contributor" shall mean Licensor and any individual or Legal Entity
++      on behalf of whom a Contribution has been received by Licensor and
++      subsequently incorporated within the Work.
++
++   2. Grant of Copyright License. Subject to the terms and conditions of
++      this License, each Contributor hereby grants to You a perpetual,
++      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
++      copyright license to reproduce, prepare Derivative Works of,
++      publicly display, publicly perform, sublicense, and distribute the
++      Work and such Derivative Works in Source or Object form.
++
++   3. Grant of Patent License. Subject to the terms and conditions of
++      this License, each Contributor hereby grants to You a perpetual,
++      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
++      (except as stated in this section) patent license to make, have made,
++      use, offer to sell, sell, import, and otherwise transfer the Work,
++      where such license applies only to those patent claims licensable
++      by such Contributor that are necessarily infringed by their
++      Contribution(s) alone or by combination of their Contribution(s)
++      with the Work to which such Contribution(s) was submitted. If You
++      institute patent litigation against any entity (including a
++      cross-claim or counterclaim in a lawsuit) alleging that the Work
++      or a Contribution incorporated within the Work constitutes direct
++      or contributory patent infringement, then any patent licenses
++      granted to You under this License for that Work shall terminate
++      as of the date such litigation is filed.
++
++   4. Redistribution. You may reproduce and distribute copies of the
++      Work or Derivative Works thereof in any medium, with or without
++      modifications, and in Source or Object form, provided that You
++      meet the following conditions:
++
++      (a) You must give any other recipients of the Work or
++          Derivative Works a copy of this License; and
++
++      (b) You must cause any modified files to carry prominent notices
++          stating that You changed the files; and
++
++      (c) You must retain, in the Source form of any Derivative Works
++          that You distribute, all copyright, patent, trademark, and
++          attribution notices from the Source form of the Work,
++          excluding those notices that do not pertain to any part of
++          the Derivative Works; and
++
++      (d) If the Work includes a "NOTICE" text file as part of its
++          distribution, then any Derivative Works that You distribute must
++          include a readable copy of the attribution notices contained
++          within such NOTICE file, excluding those notices that do not
++          pertain to any part of the Derivative Works, in at least one
++          of the following places: within a NOTICE text file distributed
++          as part of the Derivative Works; within the Source form or
++          documentation, if provided along with the Derivative Works; or,
++          within a display generated by the Derivative Works, if and
++          wherever such third-party notices normally appear. The contents
++          of the NOTICE file are for informational purposes only and
++          do not modify the License. You may add Your own attribution
++          notices within Derivative Works that You distribute, alongside
++          or as an addendum to the NOTICE text from the Work, provided
++          that such additional attribution notices cannot be construed
++          as modifying the License.
++
++      You may add Your own copyright statement to Your modifications and
++      may provide additional or different license terms and conditions
++      for use, reproduction, or distribution of Your modifications, or
++      for any such Derivative Works as a whole, provided Your use,
++      reproduction, and distribution of the Work otherwise complies with
++      the conditions stated in this License.
++
++   5. Submission of Contributions. Unless You explicitly state otherwise,
++      any Contribution intentionally submitted for inclusion in the Work
++      by You to the Licensor shall be under the terms and conditions of
++      this License, without any additional terms or conditions.
++      Notwithstanding the above, nothing herein shall supersede or modify
++      the terms of any separate license agreement you may have executed
++      with Licensor regarding such Contributions.
++
++   6. Trademarks. This License does not grant permission to use the trade
++      names, trademarks, service marks, or product names of the Licensor,
++      except as required for reasonable and customary use in describing the
++      origin of the Work and reproducing the content of the NOTICE file.
++
++   7. Disclaimer of Warranty. Unless required by applicable law or
++      agreed to in writing, Licensor provides the Work (and each
++      Contributor provides its Contributions) on an "AS IS" BASIS,
++      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
++      implied, including, without limitation, any warranties or conditions
++      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
++      PARTICULAR PURPOSE. You are solely responsible for determining the
++      appropriateness of using or redistributing the Work and assume any
++      risks associated with Your exercise of permissions under this License.
++
++   8. Limitation of Liability. In no event and under no legal theory,
++      whether in tort (including negligence), contract, or otherwise,
++      unless required by applicable law (such as deliberate and grossly
++      negligent acts) or agreed to in writing, shall any Contributor be
++      liable to You for damages, including any direct, indirect, special,
++      incidental, or consequential damages of any character arising as a
++      result of this License or out of the use or inability to use the
++      Work (including but not limited to damages for loss of goodwill,
++      work stoppage, computer failure or malfunction, or any and all
++      other commercial damages or losses), even if such Contributor
++      has been advised of the possibility of such damages.
++
++   9. Accepting Warranty or Additional Liability. While redistributing
++      the Work or Derivative Works thereof, You may choose to offer,
++      and charge a fee for, acceptance of support, warranty, indemnity,
++      or other liability obligations and/or rights consistent with this
++      License. However, in accepting such obligations, You may act only
++      on Your own behalf and on Your sole responsibility, not on behalf
++      of any other Contributor, and only if You agree to indemnify,
++      defend, and hold each Contributor harmless for any liability
++      incurred by, or claims asserted against, such Contributor by reason
++      of your accepting any such warranty or additional liability.
++
++   END OF TERMS AND CONDITIONS
++
++   APPENDIX: How to apply the Apache License to your work.
++
++      To apply the Apache License to your work, attach the following
++      boilerplate notice, with the fields enclosed by brackets "[]"
++      replaced with your own identifying information. (Don't include
++      the brackets!)  The text should be enclosed in the appropriate
++      comment syntax for the file format. We also recommend that a
++      file or class name and description of purpose be included on the
++      same "printed page" as the copyright notice for easier
++      identification within third-party archives.
++
++   Copyright [yyyy] [name of copyright owner]
++
++   Licensed under the Apache License, Version 2.0 (the "License");
++   you may not use this file except in compliance with the License.
++   You may obtain a copy of the License at
++
++       http://www.apache.org/licenses/LICENSE-2.0
++
++   Unless required by applicable law or agreed to in writing, software
++   distributed under the License is distributed on an "AS IS" BASIS,
++   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++   See the License for the specific language governing permissions and
++   limitations under the License.
+diff --git a/app/src/main/java/com/streamvault/app/MainActivity.kt b/app/src/main/java/com/streamvault/app/MainActivity.kt
+index 1fe1e053..e61fde44 100644
+--- a/app/src/main/java/com/streamvault/app/MainActivity.kt
++++ b/app/src/main/java/com/streamvault/app/MainActivity.kt
+@@ -38,6 +38,7 @@ import androidx.compose.runtime.remember
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.Composable
+ import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.fillMaxSize
+@@ -81,6 +82,10 @@ import com.streamvault.domain.model.Result
+ import com.streamvault.feature.settings.api.SettingsPlatformHost
+ import com.streamvault.feature.settings.api.SettingsRecordingPlaybackRequest
+ import com.streamvault.feature.catalog.api.CatalogPlatformHost
++import com.streamvault.app.ui.screens.settings.WireGuardAppOverlay
++import com.streamvault.app.ui.screens.settings.WireGuardTopBarAction
++import com.streamvault.app.vpn.WireGuardForegroundService
++import com.streamvault.core.ui.components.shell.LocalAppTopBarActions
+ 
+ @AndroidEntryPoint
+ class MainActivity : ComponentActivity(), CatalogPlatformHost {
+@@ -252,34 +257,38 @@ class MainActivity : ComponentActivity(), CatalogPlatformHost {
+                 LocalLayoutDirection provides layoutDirection,
+                 LocalAppTimeFormat provides appTimeFormat,
+                 LocalLiveTimeFormat provides appTimeFormat,
+-                LocalUiTimeFormat provides appTimeFormat.toUiTimeFormat()
++                LocalUiTimeFormat provides appTimeFormat.toUiTimeFormat(),
++                LocalAppTopBarActions provides { WireGuardTopBarAction() }
+             ) {
+                 StreamVaultTheme(themeId = appTheme.storageValue) {
+-                    when (val state = databaseStartupState) {
+-                        DatabaseStartupState.Opening -> DatabaseStartupScreen(state = state)
+-                        is DatabaseStartupState.Failed -> DatabaseStartupScreen(
+-                            state = state,
+-                            onRetry = {
+-                                lifecycleScope.launch { databaseStartupCoordinator.open() }
+-                            },
+-                            onShareReport = ::shareLatestFailureReport
+-                        )
+-                        DatabaseStartupState.Ready -> {
+-                            AppNavigation(
+-                                coordinator = appNavigationCoordinator,
+-                                settingsPlatformHost = settingsPlatformHost,
+-                                catalogPlatformHost = this@MainActivity,
+-                                onCloseApp = ::closeApp
++                    Box(Modifier.fillMaxSize()) {
++                        when (val state = databaseStartupState) {
++                            DatabaseStartupState.Opening -> DatabaseStartupScreen(state = state)
++                            is DatabaseStartupState.Failed -> DatabaseStartupScreen(
++                                state = state,
++                                onRetry = {
++                                    lifecycleScope.launch { databaseStartupCoordinator.open() }
++                                },
++                                onShareReport = ::shareLatestFailureReport
+                             )
+-                            LaunchedEffect(Unit) {
+-                                dispatchPendingExternalNavigationRequests()
+-                                window.decorView.doOnPreDraw {
+-                                    window.decorView.post {
+-                                        appStartupCoordinator.onFirstUiFrameDrawn(isTelevisionDevice())
++                            DatabaseStartupState.Ready -> {
++                                AppNavigation(
++                                    coordinator = appNavigationCoordinator,
++                                    settingsPlatformHost = settingsPlatformHost,
++                                    catalogPlatformHost = this@MainActivity,
++                                    onCloseApp = ::closeApp
++                                )
++                                LaunchedEffect(Unit) {
++                                    dispatchPendingExternalNavigationRequests()
++                                    window.decorView.doOnPreDraw {
++                                        window.decorView.post {
++                                            appStartupCoordinator.onFirstUiFrameDrawn(isTelevisionDevice())
++                                        }
+                                     }
+                                 }
+                             }
+                         }
++                        WireGuardAppOverlay()
+                     }
+                 }
+             }
+@@ -287,6 +296,11 @@ class MainActivity : ComponentActivity(), CatalogPlatformHost {
+         databaseStartupCoordinator.start()
+     }
+ 
++    override fun onStart() {
++        super.onStart()
++        WireGuardForegroundService.autoConnect(this)
++    }
++
+     override fun onResume() {
+         super.onResume()
+         applyImmersiveSystemUi()
+diff --git a/app/src/main/java/com/streamvault/app/di/NetworkModule.kt b/app/src/main/java/com/streamvault/app/di/NetworkModule.kt
+index d42c994e..711da465 100644
+--- a/app/src/main/java/com/streamvault/app/di/NetworkModule.kt
++++ b/app/src/main/java/com/streamvault/app/di/NetworkModule.kt
+@@ -43,6 +43,7 @@ import okhttp3.logging.HttpLoggingInterceptor
+ import java.io.File
+ import java.util.concurrent.TimeUnit.SECONDS
+ import javax.inject.Named
++import com.streamvault.app.vpn.WireGuardNetworkGuard
+ import javax.inject.Singleton
+ 
+ @Module
+@@ -59,10 +60,23 @@ object NetworkModule {
+     @Named("opensubtitlesUserAgent")
+     fun provideOpenSubtitlesUserAgent(): String = buildOpenSubtitlesUserAgent(BuildConfig.VERSION_NAME)
+ 
++    @Provides
++    @Singleton
++    @Named("vpnTransport")
++    fun provideVpnTransport(@ApplicationContext context: Context): OkHttpClient {
++        WireGuardNetworkGuard.install(context)
++        return OkHttpClient.Builder()
++            .socketFactory(WireGuardNetworkGuard.gate.socketFactory)
++            .dns(WireGuardNetworkGuard.gate.dns)
++            .addInterceptor(WireGuardNetworkGuard)
++            .build()
++    }
++
+     @Provides
+     @Singleton
+     fun provideOkHttpClient(
+-        @ApplicationContext context: Context
++        @ApplicationContext context: Context,
++        @Named("vpnTransport") transport: OkHttpClient = provideVpnTransport(context),
+     ): OkHttpClient {
+         val appUserAgent = buildAppUserAgent(BuildConfig.VERSION_NAME)
+         val isDebuggable = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+@@ -78,7 +92,7 @@ object NetworkModule {
+             level = loggingLevel
+         }
+ 
+-        return OkHttpClient.Builder()
++        return transport.newBuilder()
+             .cache(
+                 Cache(
+                     directory = File(context.cacheDir, "streamvault_http_cache"),
+@@ -114,7 +128,7 @@ object NetworkModule {
+             val proxyHost = profile.proxyHost.trim()
+             val proxyPort = profile.proxyPort
+             if (proxyHost.isNotEmpty() && proxyPort != null) {
+-                builder.proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress(proxyHost, proxyPort)))
++                builder.proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress.createUnresolved(proxyHost, proxyPort)))
+             }
+             builder.build()
+         }
+diff --git a/app/src/main/java/com/streamvault/app/di/SportsProviderNetworkModule.kt b/app/src/main/java/com/streamvault/app/di/SportsProviderNetworkModule.kt
+index 2111faef..7e944956 100644
+--- a/app/src/main/java/com/streamvault/app/di/SportsProviderNetworkModule.kt
++++ b/app/src/main/java/com/streamvault/app/di/SportsProviderNetworkModule.kt
+@@ -10,7 +10,9 @@ import dagger.Module
+ import dagger.Provides
+ import dagger.hilt.InstallIn
+ import dagger.hilt.components.SingletonComponent
++import javax.inject.Named
+ import javax.inject.Singleton
++import okhttp3.OkHttpClient
+ 
+ @Module
+ @InstallIn(SingletonComponent::class)
+@@ -28,6 +30,6 @@ object SportsProviderNetworkModule {
+ 
+     @Provides
+     @Singleton
+-    fun httpClient(): SportsProviderHttpClient =
+-        SportsProviderHttpClient(buildAppUserAgent(BuildConfig.VERSION_NAME))
++    fun httpClient(@Named("vpnTransport") client: OkHttpClient): SportsProviderHttpClient =
++        SportsProviderHttpClient(buildAppUserAgent(BuildConfig.VERSION_NAME), clientOverride = client)
+ }
+diff --git a/app/src/main/java/com/streamvault/app/di/StremioAccountModule.kt b/app/src/main/java/com/streamvault/app/di/StremioAccountModule.kt
+index 10932588..03a6e324 100644
+--- a/app/src/main/java/com/streamvault/app/di/StremioAccountModule.kt
++++ b/app/src/main/java/com/streamvault/app/di/StremioAccountModule.kt
+@@ -11,6 +11,7 @@ import dagger.Provides
+ import dagger.hilt.InstallIn
+ import dagger.hilt.android.qualifiers.ApplicationContext
+ import dagger.hilt.components.SingletonComponent
++import javax.inject.Named
+ import javax.inject.Singleton
+ import okhttp3.OkHttpClient
+ 
+@@ -18,12 +19,20 @@ import okhttp3.OkHttpClient
+ @InstallIn(SingletonComponent::class)
+ object StremioAccountModule {
+     @Provides @Singleton
+-    fun streamingService(@ApplicationContext context: Context, crypto: CredentialCrypto): com.streamvault.domain.model.stremio.StremioStreamingService =
+-        StremioStreamingServiceImpl(EncryptedStremioAccountStore(context, crypto, "stremio_streaming_service"))
++    fun streamingService(
++        @ApplicationContext context: Context,
++        crypto: CredentialCrypto,
++        @Named("vpnTransport") client: OkHttpClient,
++    ): com.streamvault.domain.model.stremio.StremioStreamingService = StremioStreamingServiceImpl(
++        EncryptedStremioAccountStore(context, crypto, "stremio_streaming_service"),
++        client,
++    )
+     @Provides @Singleton
+     fun account(@ApplicationContext context: Context,crypto: CredentialCrypto,
+         addons: StremioAddonRepository,histories: StremioPlaybackHistoryRepository,
+-        privacy: com.streamvault.domain.repository.PlaybackHistoryRepository): StremioAccount =
+-        StremioAccountService(StremioAccountApi(OkHttpClient()),EncryptedStremioAccountStore(context,crypto),addons,histories,
++        privacy: com.streamvault.domain.repository.PlaybackHistoryRepository,
++        @Named("vpnTransport") client: OkHttpClient,
++    ): StremioAccount =
++        StremioAccountService(StremioAccountApi(client),EncryptedStremioAccountStore(context,crypto),addons,histories,
+             allowed={ !privacy.isIncognitoModeEnabled() })
+ }
+diff --git a/app/src/main/java/com/streamvault/app/di/TraktModule.kt b/app/src/main/java/com/streamvault/app/di/TraktModule.kt
+index c5657748..52846cab 100644
+--- a/app/src/main/java/com/streamvault/app/di/TraktModule.kt
++++ b/app/src/main/java/com/streamvault/app/di/TraktModule.kt
+@@ -28,6 +28,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
+ import dagger.hilt.components.SingletonComponent
+ import okhttp3.OkHttpClient
+ import java.util.concurrent.TimeUnit
++import javax.inject.Named
+ import javax.inject.Singleton
+ 
+ @Module
+@@ -75,9 +76,13 @@ object TraktModule {
+     fun scrobbler(account: TraktAccount): TraktScrobbler = account as TraktScrobbler
+ 
+     @Provides @Singleton
+-    fun account(@ApplicationContext context: Context, crypto: CredentialCrypto): TraktAccount {
++    fun account(
++        @ApplicationContext context: Context,
++        crypto: CredentialCrypto,
++        @Named("vpnTransport") transport: OkHttpClient,
++    ): TraktAccount {
+         val config = TraktConfig(BuildConfig.TRAKT_CLIENT_ID, BuildConfig.TRAKT_REDIRECT_URI)
+-        val client = OkHttpClient.Builder().connectTimeout(20, TimeUnit.SECONDS)
++        val client = transport.newBuilder().connectTimeout(20, TimeUnit.SECONDS)
+             .readTimeout(20, TimeUnit.SECONDS).callTimeout(30, TimeUnit.SECONDS)
+             .retryOnConnectionFailure(false).followRedirects(false).followSslRedirects(false).build()
+         return TraktAuthService(config, EncryptedTraktTokenStore(context, crypto),
+diff --git a/app/src/main/java/com/streamvault/app/navigation/AppNavHost.kt b/app/src/main/java/com/streamvault/app/navigation/AppNavHost.kt
+index afb170cb..1319bbe5 100644
+--- a/app/src/main/java/com/streamvault/app/navigation/AppNavHost.kt
++++ b/app/src/main/java/com/streamvault/app/navigation/AppNavHost.kt
+@@ -177,7 +177,8 @@ internal fun AppNavHost(
+                     initialBackupImportUri = backupUri,
+                     openOpenSubtitlesSignIn = openOpenSubtitlesSignIn,
+                     openTrakt = openTrakt,
+-                    onCloseApp = onCloseApp
++                    onCloseApp = onCloseApp,
++                    privacyContent = { com.streamvault.app.ui.screens.settings.WireGuardSettingsEntry() },
+                 )
+             },
+             parentalControlContent = { onBack, destinations ->
+diff --git a/app/src/main/java/com/streamvault/app/player/external/ExternalPlayerLauncher.kt b/app/src/main/java/com/streamvault/app/player/external/ExternalPlayerLauncher.kt
+index 8d629220..9ce67271 100644
+--- a/app/src/main/java/com/streamvault/app/player/external/ExternalPlayerLauncher.kt
++++ b/app/src/main/java/com/streamvault/app/player/external/ExternalPlayerLauncher.kt
+@@ -89,6 +89,9 @@ object ExternalPlayerLauncher {
+      * @return the launch result indicating success or the specific failure mode
+      */
+     fun launch(context: Context, url: String): ExternalPlayerLaunchResult {
++        if (com.streamvault.app.vpn.WireGuardNetworkGuard.protectionEnabled) {
++            return ExternalPlayerLaunchResult.Failed(url, context.getString(com.streamvault.app.R.string.wg_external_blocked))
++        }
+         val trimmed = url.trim()
+ 
+         // 1. Build the intent; reject invalid URLs
+diff --git a/app/src/main/java/com/streamvault/app/plugins/PluginMessengerClient.kt b/app/src/main/java/com/streamvault/app/plugins/PluginMessengerClient.kt
+index bd9e6857..1c496771 100644
+--- a/app/src/main/java/com/streamvault/app/plugins/PluginMessengerClient.kt
++++ b/app/src/main/java/com/streamvault/app/plugins/PluginMessengerClient.kt
+@@ -33,6 +33,9 @@ class PluginMessengerClient @Inject constructor(
+         data: Bundle = Bundle(),
+         timeoutMillis: Long = DEFAULT_TIMEOUT_MS
+     ): Bundle {
++        check(!com.streamvault.app.vpn.WireGuardNetworkGuard.protectionEnabled) {
++            "VPN kill switch: external plugin network access is unavailable"
++        }
+         val appContext = context.applicationContext
+         val serviceDeferred = CompletableDeferred<Messenger>()
+         val responseDeferred = CompletableDeferred<Bundle>()
+@@ -89,6 +92,9 @@ class PluginMessengerClient @Inject constructor(
+                 }
+             }
+             try {
++                check(!com.streamvault.app.vpn.WireGuardNetworkGuard.protectionEnabled) {
++                    "VPN kill switch: external plugin network access is unavailable"
++                }
+                 service.send(request)
+             } catch (error: RemoteException) {
+                 throw IllegalStateException("Plugin service did not accept the request", error)
+diff --git a/app/src/main/java/com/streamvault/app/tvinput/StreamVaultTvInputService.kt b/app/src/main/java/com/streamvault/app/tvinput/StreamVaultTvInputService.kt
+index 609361cd..954f72aa 100644
+--- a/app/src/main/java/com/streamvault/app/tvinput/StreamVaultTvInputService.kt
++++ b/app/src/main/java/com/streamvault/app/tvinput/StreamVaultTvInputService.kt
+@@ -56,6 +56,8 @@ import java.net.Proxy
+ import okhttp3.OkHttpClient
+ import javax.inject.Inject
+ import java.io.IOException
++import com.streamvault.app.vpn.WireGuardNetworkGuard
++import kotlinx.coroutines.flow.collectLatest
+ 
+ @AndroidEntryPoint
+ class StreamVaultTvInputService : TvInputService() {
+@@ -148,6 +150,12 @@ class StreamVaultTvInputService : TvInputService() {
+         private val mainHandler = Handler(Looper.getMainLooper())
+ 
+         init {
++            scope.launch {
++                WireGuardNetworkGuard.changes.collectLatest {
++                    val streamInfo = startupStream ?: return@collectLatest
++                    if (!startupTerminal) checkPlaybackNetwork(streamInfo)
++                }
++            }
+             scope.launch {
+                 while (isActive) {
+                     delay(1_000L)
+@@ -326,6 +334,7 @@ class StreamVaultTvInputService : TvInputService() {
+         }
+ 
+         private fun prepareStream(streamInfo: StreamInfo, preserveEpisode: Boolean) {
++            if (!checkPlaybackNetwork(streamInfo)) return
+             surfaceRecovery.reset(preserveAttempt = preserveEpisode)
+             surfaceRecoveryGeneration = null
+             startupRefreshGate.clear()
+@@ -344,6 +353,16 @@ class StreamVaultTvInputService : TvInputService() {
+             player.playWhenReady = true
+         }
+ 
++        private fun checkPlaybackNetwork(streamInfo: StreamInfo): Boolean {
++            return try {
++                WireGuardNetworkGuard.checkPlayback(Uri.parse(streamInfo.url))
++                true
++            } catch (_: IOException) {
++                failStartup()
++                false
++            }
++        }
++
+         private fun failStartup() {
+             surfaceRecovery.reset(preserveAttempt = true)
+             surfaceRecoveryGeneration = null
+@@ -478,7 +497,7 @@ class StreamVaultTvInputService : TvInputService() {
+     private fun StreamInfo.httpProxy(): Proxy? {
+         val host = proxyHost.trim().takeIf { it.isNotBlank() } ?: return null
+         val port = proxyPort ?: return null
+-        return Proxy(Proxy.Type.HTTP, InetSocketAddress(host, port))
++        return Proxy(Proxy.Type.HTTP, InetSocketAddress.createUnresolved(host, port))
+     }
+ 
+     private data class PlaybackClientKey(
+diff --git a/app/src/main/java/com/streamvault/app/ui/screens/settings/WireGuardAppOverlay.kt b/app/src/main/java/com/streamvault/app/ui/screens/settings/WireGuardAppOverlay.kt
+new file mode 100644
+index 00000000..53ab0eed
+--- /dev/null
++++ b/app/src/main/java/com/streamvault/app/ui/screens/settings/WireGuardAppOverlay.kt
+@@ -0,0 +1,106 @@
++package com.streamvault.app.ui.screens.settings
++
++import androidx.compose.foundation.background
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.width
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material3.LinearProgressIndicator
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.setValue
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.res.stringResource
++import androidx.compose.ui.platform.LocalContext
++import androidx.tv.material3.Button
++import androidx.compose.ui.semantics.LiveRegionMode
++import androidx.compose.ui.semantics.liveRegion
++import androidx.compose.ui.semantics.semantics
++import androidx.compose.ui.unit.dp
++import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import androidx.tv.material3.Text
++import com.streamvault.app.R
++import com.streamvault.app.vpn.VpnPhase
++import com.streamvault.app.vpn.WireGuardForegroundService
++import com.streamvault.app.vpn.WireGuardUi
++import com.streamvault.app.vpn.WireGuardPreferences
++import com.streamvault.feature.settings.presentation.ClickableSettingsRow
++import kotlinx.coroutines.delay
++
++@Composable
++internal fun WireGuardAppOverlay() {
++    val open by WireGuardUi.open.collectAsStateWithLifecycle()
++    val status by WireGuardForegroundService.status.collectAsStateWithLifecycle()
++    var showSuccess by remember { mutableStateOf(false) }
++    LaunchedEffect(status.connected) {
++        showSuccess = status.connected
++        if (showSuccess) { delay(3_000); showSuccess = false }
++    }
++    val warning = status.phase == VpnPhase.ERROR || (status.phase == VpnPhase.UP && !status.connected)
++    var showWarning by remember { mutableStateOf(false) }
++    LaunchedEffect(warning, status.message) {
++        showWarning = warning
++        if (warning) { delay(12_000); showWarning = false }
++    }
++    if (status.phase == VpnPhase.CONNECTING || showSuccess || showWarning) {
++        // A non-focusable overlay: it never steals D-pad input from the current screen.
++        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomEnd) {
++            Column(
++                modifier = Modifier.padding(22.dp).width(320.dp)
++                    .background(if (warning) Color(0xFF612A20) else Color(0xFF172635), RoundedCornerShape(14.dp))
++                    .padding(16.dp).semantics { liveRegion = LiveRegionMode.Polite },
++                verticalArrangement = Arrangement.spacedBy(8.dp)
++            ) {
++                Text(stringResource(if (warning) R.string.wg_warning else if (status.connected)
++                    R.string.wg_nav_connected else R.string.wg_connecting), color = Color.White)
++                if (!warning) LinearProgressIndicator(progress = { status.progress }, modifier = Modifier.fillMaxWidth())
++                status.message?.let { Text(stringResource(it), color = Color.White) }
++            }
++        }
++    }
++    if (open) {
++        WireGuardSettingsCard(onClosed = WireGuardUi::close)
++    }
++}
++
++@Composable
++internal fun WireGuardTopBarAction() {
++    val options by WireGuardPreferences.get(LocalContext.current).state.collectAsStateWithLifecycle()
++    if (options.showStatus) {
++        val status by WireGuardForegroundService.status.collectAsStateWithLifecycle()
++        val label = stringResource(if (status.connected) R.string.wg_nav_connected else R.string.wg_nav_disconnected)
++        Button(onClick = WireGuardUi::show) {
++            Text(label)
++        }
++    }
++}
++
++@Composable
++internal fun WireGuardSettingsEntry() {
++    val status by WireGuardForegroundService.status.collectAsStateWithLifecycle()
++    ClickableSettingsRow(
++        label = stringResource(R.string.wg_title),
++        value = wireGuardPhaseLabel(status.phase),
++        onClick = WireGuardUi::show,
++    )
++}
++
++@Composable
++internal fun wireGuardPhaseLabel(phase: VpnPhase): String = stringResource(
++    when (phase) {
++        VpnPhase.OFF -> R.string.wg_off
++        VpnPhase.CONNECTING -> R.string.wg_connecting
++        VpnPhase.UP -> R.string.wg_up
++        VpnPhase.DISCONNECTING -> R.string.wg_disconnecting
++        VpnPhase.ERROR -> R.string.wg_error_connect
++    }
++)
+diff --git a/app/src/main/java/com/streamvault/app/ui/screens/settings/WireGuardSettingsCard.kt b/app/src/main/java/com/streamvault/app/ui/screens/settings/WireGuardSettingsCard.kt
+new file mode 100644
+index 00000000..d16dad1a
+--- /dev/null
++++ b/app/src/main/java/com/streamvault/app/ui/screens/settings/WireGuardSettingsCard.kt
+@@ -0,0 +1,244 @@
++package com.streamvault.app.ui.screens.settings
++
++import android.app.Activity
++import android.content.ActivityNotFoundException
++import android.net.VpnService
++import androidx.activity.compose.rememberLauncherForActivityResult
++import androidx.activity.result.contract.ActivityResultContracts
++import androidx.compose.foundation.Image
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.graphics.asImageBitmap
++import androidx.compose.ui.focus.FocusRequester
++import androidx.compose.ui.focus.focusRequester
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Column
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.DisposableEffect
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.saveable.rememberSaveable
++import androidx.compose.runtime.setValue
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.platform.LocalContext
++import androidx.compose.ui.res.stringResource
++import androidx.compose.ui.unit.dp
++import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import androidx.lifecycle.viewmodel.compose.viewModel
++import androidx.tv.material3.Text
++import com.streamvault.app.R
++import com.streamvault.core.ui.components.dialogs.PremiumDialog
++import com.streamvault.core.ui.components.dialogs.PremiumDialogActionButton
++import com.streamvault.core.ui.components.dialogs.PremiumDialogFooterButton
++import com.streamvault.core.ui.theme.OnSurface
++import com.streamvault.feature.settings.presentation.ClickableSettingsRow
++import com.streamvault.feature.settings.presentation.SwitchSettingsRow
++import com.streamvault.app.vpn.VpnPhase
++import com.streamvault.app.vpn.WireGuardForegroundService
++import com.streamvault.app.vpn.WireGuardViewModel
++import com.streamvault.app.vpn.WireGuardUi
++
++@Composable
++internal fun WireGuardSettingsCard(
++    onClosed: () -> Unit,
++    model: WireGuardViewModel = viewModel(),
++) {
++    val context = LocalContext.current
++    val state by model.state.collectAsStateWithLifecycle()
++    val status by model.status.collectAsStateWithLifecycle()
++    val options by model.options.collectAsStateWithLifecycle()
++    var showImport by rememberSaveable { mutableStateOf(false) }
++    var pendingId by rememberSaveable { mutableStateOf<String?>(null) }
++    var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
++    DisposableEffect(Unit) {
++        WireGuardUi.settingsVisible = true
++        onDispose { WireGuardUi.settingsVisible = false }
++    }
++    val pairing by model.pairing.collectAsStateWithLifecycle()
++    val addFocus = remember { FocusRequester() }
++    val optionsFocus = remember { FocusRequester() }
++    val retryFocus = remember { FocusRequester() }
++    val permission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
++        val id = pendingId
++        pendingId = null
++        if (result.resultCode == Activity.RESULT_OK && id != null) {
++            WireGuardForegroundService.connect(context, id)
++        } else {
++            model.reportError(R.string.wg_error_permission)
++        }
++    }
++    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
++        if (uri != null) model.importFile("WireGuard", uri)
++    }
++    LaunchedEffect(state.importFinished) {
++        if (state.importFinished > 0) {
++            showImport = false
++            model.stopPairing()
++        }
++    }
++    val statusText = wireGuardPhaseLabel(status.phase)
++    if (!showImport && deleteId == null) {
++        PremiumDialog(
++            title = stringResource(R.string.wg_title),
++            subtitle = stringResource(R.string.wg_scope),
++            widthFraction = 0.7f,
++            scrollOnDirectionalKey = false,
++            initialBodyFocusRequester = optionsFocus,
++            onDismissRequest = onClosed,
++            content = {
++                WireGuardToggleRow(
++                    stringResource(R.string.wg_auto), stringResource(R.string.wg_auto_hint),
++                    options.autoConnect, { model.setAutoConnect(it) }, enabled = state.profiles.isNotEmpty(),
++                    modifier = Modifier.focusRequester(optionsFocus))
++                Text(stringResource(R.string.wg_auto_profile,
++                    state.profiles.firstOrNull { it.id == options.profileId }?.name
++                        ?: stringResource(R.string.wg_auto_profile_none)), color = OnSurface)
++                WireGuardToggleRow(
++                    stringResource(R.string.wg_kill), stringResource(R.string.wg_kill_hint),
++                    options.killSwitch, { model.setKillSwitch(it) })
++                if (options.killSwitch) Text(stringResource(R.string.wg_kill_external_hint), color = OnSurface)
++                if (options.killSwitch && !status.connected) {
++                    Text(stringResource(R.string.wg_blocked), color = OnSurface)
++                }
++                WireGuardToggleRow(
++                    stringResource(R.string.wg_status_toggle), stringResource(R.string.wg_status_hint),
++                    options.showStatus, { model.setShowStatus(it) })
++                Text(statusText, color = OnSurface)
++                status.message?.let { Text(stringResource(it), color = OnSurface) }
++                if (status.phase == VpnPhase.UP) {
++                    Text(stringResource(if (status.handshakeAt > 0) R.string.wg_handshake else R.string.wg_waiting),
++                        color = OnSurface)
++                }
++                state.error?.let { Text(stringResource(it), color = OnSurface) }
++                if (status.occupied) {
++                    PremiumDialogActionButton(
++                        label = stringResource(R.string.wg_disconnect),
++                        modifier = Modifier.focusRequester(addFocus),
++                        enabled = status.phase == VpnPhase.UP,
++                        onClick = { WireGuardForegroundService.disconnect(context) })
++                }
++                PremiumDialogActionButton(
++                    label = stringResource(R.string.wg_add), enabled = !status.occupied && !state.busy && state.profiles.size < 32,
++                    modifier = if (!status.occupied) Modifier.focusRequester(addFocus) else Modifier,
++                    onClick = { showImport = true })
++                if (state.profiles.isEmpty() && !state.busy) Text(stringResource(R.string.wg_empty), color = OnSurface)
++                state.profiles.forEach { profile ->
++                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
++                        ClickableSettingsRow(
++                            label = profile.name.take(32),
++                            value = stringResource(if (status.profileId == profile.id) R.string.wg_selected else R.string.wg_connect),
++                            enabled = !status.occupied && pendingId == null && !state.busy,
++                            onClick = {
++                                try {
++                                    model.selectProfile(profile.id)
++                                    val consent = VpnService.prepare(context)
++                                    if (consent == null) WireGuardForegroundService.connect(context, profile.id)
++                                    else { pendingId = profile.id; permission.launch(consent) }
++                                } catch (_: Exception) {
++                                    pendingId = null
++                                    model.reportError(R.string.wg_error_permission)
++                                }
++                            })
++                        PremiumDialogActionButton(
++                            label = stringResource(if (options.profileId == profile.id) R.string.wg_auto_profile_selected else R.string.wg_auto_profile_select),
++                            enabled = !state.busy,
++                            onClick = { model.selectProfile(profile.id) })
++                        PremiumDialogActionButton(
++                            label = stringResource(R.string.wg_delete),
++                            enabled = !state.busy && !status.occupied && pendingId == null,
++                            onClick = { deleteId = profile.id })
++                    }
++                }
++                Text(stringResource(R.string.wg_lifecycle), color = OnSurface)
++            },
++            footer = {
++                PremiumDialogFooterButton(stringResource(R.string.wg_close), onClick = onClosed)
++            }
++        )
++    }
++    if (showImport) {
++        DisposableEffect(model) {
++            model.startPairing()
++            onDispose { model.stopPairing() }
++        }
++        PremiumDialog(
++            title = stringResource(R.string.wg_add),
++            subtitle = stringResource(R.string.wg_import_hint),
++            widthFraction = 0.8f,
++            bodyHeightFraction = 0.62f,
++            heightFraction = 0.94f,
++            scrollOnDirectionalKey = false,
++            initialBodyFocusRequester = retryFocus,
++            onDismissRequest = { showImport = false },
++            content = {
++                Row(horizontalArrangement = Arrangement.spacedBy(20.dp),
++                    verticalAlignment = Alignment.CenterVertically) {
++                    pairing.qr?.let { bitmap ->
++                        Image(bitmap.asImageBitmap(), stringResource(R.string.wg_phone),
++                            modifier = Modifier.size(156.dp))
++                    }
++                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
++                        Text(stringResource(R.string.wg_phone_hint), color = OnSurface)
++                        pairing.error?.let { Text(stringResource(it), color = OnSurface) }
++                    }
++                }
++                state.error?.let { Text(stringResource(it), color = OnSurface) }
++                PremiumDialogActionButton(
++                    label = stringResource(R.string.wg_pairing_retry),
++                    modifier = Modifier.focusRequester(retryFocus),
++                    onClick = { model.startPairing() })
++                PremiumDialogActionButton(
++                    label = stringResource(R.string.wg_import_file), enabled = !state.busy,
++                    onClick = {
++                        try { picker.launch(arrayOf("*/*")) }
++                        catch (_: ActivityNotFoundException) { model.reportError(R.string.wg_error_picker) }
++                    })
++            },
++            footer = {
++                PremiumDialogFooterButton(stringResource(R.string.wg_cancel),
++                    onClick = { showImport = false })
++            }
++        )
++    }
++    deleteId?.let { id ->
++        PremiumDialog(
++            scrollOnDirectionalKey = false,
++            title = stringResource(R.string.wg_delete),
++            subtitle = stringResource(R.string.wg_delete_confirm),
++            onDismissRequest = { deleteId = null },
++            content = {
++                PremiumDialogActionButton(stringResource(R.string.wg_delete), onClick = {
++                    model.delete(id); deleteId = null
++                })
++            },
++            footer = { PremiumDialogFooterButton(stringResource(R.string.wg_cancel), onClick = { deleteId = null }) }
++        )
++    }
++}
++
++/** Exactly one focus target per switch; moving the focus never changes its value. */
++@Composable
++private fun WireGuardToggleRow(label: String, hint: String, checked: Boolean,
++    onToggle: (Boolean) -> Unit, enabled: Boolean = true, modifier: Modifier = Modifier) {
++    com.streamvault.app.ui.interaction.TvClickableSurface(
++        onClick = { if (enabled) onToggle(!checked) },
++        colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
++            containerColor = androidx.compose.ui.graphics.Color.Transparent,
++            focusedContainerColor = com.streamvault.app.ui.theme.Primary.copy(alpha = 0.18f)),
++        modifier = modifier.fillMaxWidth()
++    ) {
++        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically,
++            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
++            Column(Modifier.weight(1f)) {
++                Text(label, color = OnSurface)
++                Text(hint, color = OnSurface, style = androidx.tv.material3.MaterialTheme.typography.bodySmall)
++            }
++            androidx.compose.material3.Switch(checked = checked, onCheckedChange = null, enabled = enabled)
++        }
++    }
++}
+diff --git a/app/src/main/java/com/streamvault/app/update/GitHubReleaseChecker.kt b/app/src/main/java/com/streamvault/app/update/GitHubReleaseChecker.kt
+index cd176f33..9055265a 100644
+--- a/app/src/main/java/com/streamvault/app/update/GitHubReleaseChecker.kt
++++ b/app/src/main/java/com/streamvault/app/update/GitHubReleaseChecker.kt
+@@ -14,8 +14,8 @@ import java.net.URI
+ import javax.inject.Inject
+ import javax.inject.Singleton
+ 
+-private const val GITHUB_RELEASES_LATEST_URL = "https://api.github.com/repos/Davidona/StreamVault-IPTV/releases/latest"
+-private const val GITHUB_RELEASES_LIST_URL = "https://api.github.com/repos/Davidona/StreamVault-IPTV/releases?per_page=20"
++private const val GITHUB_RELEASES_LATEST_URL = "https://api.github.com/repos/MerlinManch/StreamVault-VPN/releases/latest"
++private const val GITHUB_RELEASES_LIST_URL = "https://api.github.com/repos/MerlinManch/StreamVault-VPN/releases?per_page=20"
+ 
+ data class GitHubReleaseInfo(
+     val versionName: String,
+diff --git a/app/src/main/java/com/streamvault/app/vpn/VpnConnectionHealth.kt b/app/src/main/java/com/streamvault/app/vpn/VpnConnectionHealth.kt
+new file mode 100644
+index 00000000..7ca546b0
+--- /dev/null
++++ b/app/src/main/java/com/streamvault/app/vpn/VpnConnectionHealth.kt
+@@ -0,0 +1,12 @@
++package com.streamvault.app.vpn
++
++/** Monotonic liveness window; wall-clock changes cannot extend connectivity. */
++internal class VpnConnectionHealth {
++    private var lastHealthy: Long? = null
++    private var handshake = 0L
++    fun observe(now: Long, handshakeAt: Long, probeSucceeded: Boolean): Boolean {
++        if (probeSucceeded || handshakeAt > handshake) lastHealthy = now
++        handshake = maxOf(handshake, handshakeAt)
++        return lastHealthy?.let { now >= it && now - it < 30_000L } == true
++    }
++}
+diff --git a/app/src/main/java/com/streamvault/app/vpn/VpnSocketGate.kt b/app/src/main/java/com/streamvault/app/vpn/VpnSocketGate.kt
+new file mode 100644
+index 00000000..33fbe3ba
+--- /dev/null
++++ b/app/src/main/java/com/streamvault/app/vpn/VpnSocketGate.kt
+@@ -0,0 +1,65 @@
++package com.streamvault.app.vpn
++
++import java.io.IOException
++import java.net.InetAddress
++import java.net.InetSocketAddress
++import java.net.Socket
++import java.util.WeakHashMap
++import javax.net.SocketFactory
++import okhttp3.Dns
++
++/** Fail-closed gate shared by API, playback, artwork, recordings and downloads. */
++internal class VpnSocketGate {
++    data class Transport(val sockets: SocketFactory, val dns: Dns)
++    private var required = false
++    private var transport: Transport? = null
++    private val sockets = WeakHashMap<Socket, Boolean>()
++
++    @Synchronized fun configure(killSwitch: Boolean, vpn: Transport?) {
++        if (required != killSwitch || transport !== vpn) {
++            required = killSwitch
++            transport = vpn
++            sockets.keys.toList().forEach { runCatching { it.close() } }
++            sockets.clear()
++        }
++    }
++
++    @Synchronized fun check() {
++        if (required && transport == null) throw IOException("VPN kill switch: connection blocked")
++    }
++
++    val dns = vpnDns { hostname ->
++        val delegate = synchronized(this) {
++            check()
++            if (required) transport!!.dns else Dns.SYSTEM
++        }
++        delegate.lookup(hostname)
++    }
++
++    val socketFactory: SocketFactory = object : SocketFactory() {
++        override fun createSocket(): Socket = synchronized(this@VpnSocketGate) {
++            check()
++            val factory = if (required) transport!!.sockets else SocketFactory.getDefault()
++            factory.createSocket().also { sockets[it] = true }
++        }
++        override fun createSocket(host: String, port: Int): Socket =
++            connect(dns.lookup(host).first(), port, null, 0)
++        override fun createSocket(host: String, port: Int, local: InetAddress, localPort: Int): Socket =
++            connect(dns.lookup(host).first(), port, local, localPort)
++        override fun createSocket(host: InetAddress, port: Int): Socket = connect(host, port, null, 0)
++        override fun createSocket(host: InetAddress, port: Int, local: InetAddress, localPort: Int): Socket =
++            connect(host, port, local, localPort)
++        private fun connect(host: InetAddress, port: Int, local: InetAddress?, localPort: Int): Socket {
++            val socket = createSocket()
++            try {
++                if (local != null) socket.bind(InetSocketAddress(local, localPort))
++                socket.connect(InetSocketAddress(host, port))
++                return socket
++            } catch (error: Exception) { socket.close(); throw error }
++        }
++    }
++}
++
++internal fun vpnDns(resolve: (String) -> List<InetAddress>): Dns = object : Dns {
++    override fun lookup(hostname: String): List<InetAddress> = resolve(hostname)
++}
+diff --git a/app/src/main/java/com/streamvault/app/vpn/WireGuardConfigPolicy.kt b/app/src/main/java/com/streamvault/app/vpn/WireGuardConfigPolicy.kt
+new file mode 100644
+index 00000000..0bf0a6d5
+--- /dev/null
++++ b/app/src/main/java/com/streamvault/app/vpn/WireGuardConfigPolicy.kt
+@@ -0,0 +1,55 @@
++package com.streamvault.app.vpn
++
++import com.wireguard.config.Config
++import com.wireguard.config.Interface
++import java.io.ByteArrayInputStream
++import java.net.Inet4Address
++import java.net.Inet6Address
++
++/** Never display parser exception messages: they can contain private keys. */
++internal class VpnProfileException(val reason: Reason) : Exception() {
++    enum class Reason { INVALID, FULL_TUNNEL, DNS, TOO_LARGE, STORAGE }
++}
++
++internal object WireGuardConfigPolicy {
++    const val MAX_BYTES = 65_536
++
++    fun parse(text: String, packageName: String): Config {
++        if (text.toByteArray(Charsets.UTF_8).size > MAX_BYTES) {
++            throw VpnProfileException(VpnProfileException.Reason.TOO_LARGE)
++        }
++        // Android application selection is owned by this app, not by an imported profile.
++        val sanitized = text.removePrefix("\uFEFF").lineSequence().filterNot {
++            val key = it.substringBefore('=').trim()
++            key.equals("IncludedApplications", true) || key.equals("ExcludedApplications", true)
++        }.joinToString("\n")
++        val source = try {
++            Config.parse(ByteArrayInputStream(sanitized.toByteArray(Charsets.UTF_8)))
++        } catch (_: Exception) {
++            throw VpnProfileException(VpnProfileException.Reason.INVALID)
++        }
++        val iface = source.`interface`
++        val peer = source.peers.singleOrNull()
++            ?: throw VpnProfileException(VpnProfileException.Reason.FULL_TUNNEL)
++        if (iface.addresses.isEmpty() || !peer.endpoint.isPresent) {
++            throw VpnProfileException(VpnProfileException.Reason.INVALID)
++        }
++        if (iface.dnsServers.isEmpty()) throw VpnProfileException(VpnProfileException.Reason.DNS)
++        val hasV4Default = peer.allowedIps.any { it.mask == 0 && it.address is Inet4Address }
++        val hasV6Default = peer.allowedIps.any { it.mask == 0 && it.address is Inet6Address }
++        val usesV6 = iface.addresses.any { it.address is Inet6Address } ||
++            iface.dnsServers.any { it is Inet6Address } || peer.allowedIps.any { it.address is Inet6Address }
++        if (!hasV4Default || (usesV6 && !hasV6Default)) {
++            throw VpnProfileException(VpnProfileException.Reason.FULL_TUNNEL)
++        }
++        val scoped = Interface.Builder()
++            .setKeyPair(iface.keyPair)
++            .addAddresses(iface.addresses)
++            .addDnsServers(iface.dnsServers)
++            .addDnsSearchDomains(iface.dnsSearchDomains)
++            .includeApplication(packageName)
++        iface.mtu.ifPresent { scoped.setMtu(it) }
++        iface.listenPort.ifPresent { scoped.setListenPort(it) }
++        return Config.Builder().setInterface(scoped.build()).addPeer(peer).build()
++    }
++}
+diff --git a/app/src/main/java/com/streamvault/app/vpn/WireGuardForegroundService.kt b/app/src/main/java/com/streamvault/app/vpn/WireGuardForegroundService.kt
+new file mode 100644
+index 00000000..9abf459a
+--- /dev/null
++++ b/app/src/main/java/com/streamvault/app/vpn/WireGuardForegroundService.kt
+@@ -0,0 +1,229 @@
++package com.streamvault.app.vpn
++
++import android.app.Service
++import android.content.Context
++import android.content.Intent
++import android.net.ConnectivityManager
++import android.net.Network
++import android.net.NetworkCapabilities
++import android.net.VpnService
++import android.os.IBinder
++import android.os.SystemClock
++import androidx.core.content.ContextCompat
++import com.streamvault.app.R
++import com.wireguard.android.backend.GoBackend
++import com.wireguard.android.backend.Tunnel
++import com.wireguard.config.Config
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.SupervisorJob
++import kotlinx.coroutines.cancel
++import kotlinx.coroutines.delay
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.flow.update
++import kotlinx.coroutines.flow.first
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.withTimeout
++import kotlinx.coroutines.sync.Mutex
++import kotlinx.coroutines.sync.withLock
++
++internal enum class VpnPhase { OFF, CONNECTING, UP, DISCONNECTING, ERROR }
++internal data class VpnStatus(
++    val phase: VpnPhase = VpnPhase.OFF,
++    val profileId: String? = null,
++    val handshakeAt: Long = 0L,
++    val connected: Boolean = false,
++    val progress: Float = 0f,
++    val message: Int? = null
++) {
++    val occupied: Boolean get() = phase in setOf(VpnPhase.CONNECTING, VpnPhase.UP, VpnPhase.DISCONNECTING)
++}
++
++class WireGuardForegroundService : Service() {
++    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
++    private val mutex = Mutex()
++    private var backend: GoBackend? = null
++    @Volatile private var destroyed = false
++    @Volatile private var failed = false
++    private var started = false
++    private var failureMessage = R.string.wg_error_connect
++    private val tunnel = object : Tunnel {
++        override fun getName() = "streamvault"
++        override fun onStateChange(newState: Tunnel.State) {
++            if (newState == Tunnel.State.DOWN && status.value.phase == VpnPhase.UP) {
++                WireGuardNetworkGuard.connected(null)
++                failed = true
++                mutableStatus.update { it.copy(phase = VpnPhase.DISCONNECTING, connected = false) }
++                stopSelf()
++            }
++        }
++    }
++
++    override fun onCreate() { super.onCreate(); showWireGuardNotification() }
++
++    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
++        if (intent?.action == DISCONNECT) {
++            WireGuardNetworkGuard.connected(null)
++            mutableStatus.update { it.copy(phase = VpnPhase.DISCONNECTING, connected = false) }
++            stopSelf()
++        } else if (!started) {
++            started = true
++            val id = intent?.getStringExtra(PROFILE_ID)
++            if (id == null) stopSelf() else {
++                mutableStatus.value = VpnStatus(VpnPhase.CONNECTING, id, progress = 0.15f, message = R.string.wg_step_profile)
++                scope.launch {
++                    try {
++                        val config = WireGuardProfileStore(applicationContext).config(id)
++                        mutex.withLock {
++                            if (destroyed) return@launch
++                            val engine = GoBackend(applicationContext).also { backend = it }
++                            mutableStatus.update { it.copy(progress = 0.35f, message = R.string.wg_step_tunnel) }
++                            startService(Intent(this@WireGuardForegroundService, WireGuardTunnelService::class.java))
++                            withTimeout(5_000) { WireGuardTunnelService.ready.first { it } }
++                            if (destroyed) return@launch
++                            engine.setState(tunnel, Tunnel.State.UP, config)
++                        }
++                        val network = withTimeout(8_000) {
++                            var found = findOwnNetwork(config)
++                            while (found == null) { delay(100); found = findOwnNetwork(config) }
++                            found
++                        }
++                        mutableStatus.update { it.copy(progress = 0.7f, message = R.string.wg_step_handshake) }
++                        val health = VpnConnectionHealth()
++                        withTimeout(30_000) {
++                            while (!destroyed) {
++                                val reply = WireGuardHealthProbe.check(network, config.`interface`.dnsServers.first())
++                                val handshake = latestHandshake()
++                                if (health.observe(SystemClock.elapsedRealtime(), handshake, reply) && handshake > 0) {
++                                    if (destroyed || status.value.phase == VpnPhase.DISCONNECTING) return@withTimeout
++                                    WireGuardNetworkGuard.connected(network)
++                                    mutableStatus.value = VpnStatus(VpnPhase.UP, id, handshake, true, 1f)
++                                    break
++                                }
++                                delay(1_000)
++                            }
++                        }
++                        while (!destroyed) {
++                            delay(8_000)
++                            val sameNetwork = findOwnNetwork(config) == network
++                            val reply = sameNetwork && WireGuardHealthProbe.check(network, config.`interface`.dnsServers.first())
++                            val handshake = latestHandshake()
++                            val alive = sameNetwork && health.observe(SystemClock.elapsedRealtime(), handshake, reply)
++                            if (destroyed || status.value.phase == VpnPhase.DISCONNECTING) break
++                            WireGuardNetworkGuard.connected(if (alive) network else null)
++                            mutableStatus.update {
++                                it.copy(connected = alive, handshakeAt = handshake,
++                                    message = if (alive) null else R.string.wg_connection_lost)
++                            }
++                        }
++                    } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
++                        fail(R.string.wg_connection_timeout)
++                    } catch (_: kotlinx.coroutines.CancellationException) {
++                        // Service teardown already closes the gate.
++                    } catch (_: Exception) {
++                        fail(R.string.wg_error_connect)
++                    } catch (_: LinkageError) {
++                        fail(R.string.wg_error_connect)
++                    }
++                }
++            }
++        }
++        return START_NOT_STICKY
++    }
++
++    private fun fail(message: Int) {
++        if (destroyed) return
++        failed = true
++        failureMessage = message
++        WireGuardNetworkGuard.connected(null)
++        mutableStatus.update { it.copy(phase = VpnPhase.DISCONNECTING, connected = false, message = message) }
++        stopSelf()
++    }
++
++    private suspend fun latestHandshake(): Long = mutex.withLock {
++        if (destroyed) return@withLock 0L
++        val stats = backend?.getStatistics(tunnel)
++        stats?.peers()?.maxOfOrNull { stats.peer(it)?.latestHandshakeEpochMillis() ?: 0L } ?: 0L
++    }
++
++    private fun findOwnNetwork(config: Config): Network? {
++        val manager = getSystemService(ConnectivityManager::class.java)
++        val addresses = config.`interface`.addresses.map { it.address }.toSet()
++        return manager.allNetworks.firstOrNull { network ->
++            manager.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true &&
++                manager.getLinkProperties(network)?.linkAddresses?.any { it.address in addresses } == true
++        }
++    }
++
++    override fun onDestroy() {
++        destroyed = true
++        WireGuardNetworkGuard.connected(null)
++        super.onDestroy()
++        scope.launch {
++            mutex.withLock {
++                try { backend?.setState(tunnel, Tunnel.State.DOWN, null) }
++                catch (_: Exception) { failed = true }
++                try {
++                    stopService(Intent(this@WireGuardForegroundService, WireGuardTunnelService::class.java))
++                    withTimeout(5_000) { WireGuardTunnelService.ready.first { !it } }
++                } catch (_: Exception) { failed = true }
++                finally {
++                    mutableStatus.value = VpnStatus(
++                        if (failed) VpnPhase.ERROR else VpnPhase.OFF,
++                        message = if (failed) failureMessage else null)
++                    scope.cancel()
++                }
++            }
++        }
++    }
++
++    override fun onBind(intent: Intent?): IBinder? = null
++
++    companion object {
++        private const val PROFILE_ID = "profile_id"
++        internal const val DISCONNECT = "com.streamvault.app.vpn.DISCONNECT"
++        private val mutableStatus = MutableStateFlow(VpnStatus())
++        internal val status = mutableStatus.asStateFlow()
++
++        internal fun reportFailure(message: Int) {
++            if (!status.value.occupied) mutableStatus.value = VpnStatus(VpnPhase.ERROR, message = message)
++        }
++
++        internal fun autoConnect(context: Context) {
++            val options = WireGuardPreferences.get(context).state.value
++            if (!options.autoConnect || status.value.occupied || WireGuardUi.settingsVisible) return
++            val id = options.profileId ?: run { reportFailure(R.string.wg_select_profile); return }
++            try {
++                if (VpnService.prepare(context) != null) {
++                    reportFailure(R.string.wg_auto_permission)
++                } else connect(context, id)
++            } catch (_: Exception) { reportFailure(R.string.wg_error_permission) }
++        }
++
++        internal fun connect(context: Context, id: String) {
++            if (status.value.occupied) return
++            WireGuardPreferences.get(context).update { it.copy(profileId = id) }
++            WireGuardNetworkGuard.connected(null)
++            mutableStatus.value = VpnStatus(VpnPhase.CONNECTING, id, progress = 0.05f, message = R.string.wg_step_profile)
++            try {
++                ContextCompat.startForegroundService(context,
++                    Intent(context, WireGuardForegroundService::class.java).putExtra(PROFILE_ID, id))
++            } catch (_: Exception) { reportFailureAfterStart() }
++        }
++
++        private fun reportFailureAfterStart() {
++            WireGuardNetworkGuard.connected(null)
++            mutableStatus.value = VpnStatus(VpnPhase.ERROR, message = R.string.wg_error_connect)
++        }
++
++        internal fun disconnect(context: Context) {
++            if (!status.value.occupied) return
++            WireGuardNetworkGuard.connected(null)
++            mutableStatus.update { it.copy(phase = VpnPhase.DISCONNECTING, connected = false) }
++            try {
++                context.startService(Intent(context, WireGuardForegroundService::class.java).setAction(DISCONNECT))
++            } catch (_: Exception) { context.stopService(Intent(context, WireGuardForegroundService::class.java)) }
++        }
++    }
++}
+diff --git a/app/src/main/java/com/streamvault/app/vpn/WireGuardHealthProbe.kt b/app/src/main/java/com/streamvault/app/vpn/WireGuardHealthProbe.kt
+new file mode 100644
+index 00000000..e16ae95c
+--- /dev/null
++++ b/app/src/main/java/com/streamvault/app/vpn/WireGuardHealthProbe.kt
+@@ -0,0 +1,25 @@
++package com.streamvault.app.vpn
++
++import android.net.Network
++import java.net.DatagramPacket
++import java.net.DatagramSocket
++import java.net.InetAddress
++import java.security.SecureRandom
++
++/** A root NS DNS query to the profile's DNS server, always bound to the VPN. */
++internal object WireGuardHealthProbe {
++    fun check(network: Network, dns: InetAddress): Boolean = runCatching {
++        val id = SecureRandom().nextInt(65_536)
++        val request = byteArrayOf((id shr 8).toByte(), id.toByte(), 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 1)
++        DatagramSocket().use { socket ->
++            network.bindSocket(socket)
++            socket.soTimeout = 2_000
++            socket.connect(dns, 53)
++            socket.send(DatagramPacket(request, request.size))
++            val response = DatagramPacket(ByteArray(512), 512)
++            socket.receive(response)
++            response.length >= 12 && response.data[0] == request[0] &&
++                response.data[1] == request[1] && (response.data[2].toInt() and 0x80) != 0
++        }
++    }.getOrDefault(false)
++}
+diff --git a/app/src/main/java/com/streamvault/app/vpn/WireGuardNetworkGuard.kt b/app/src/main/java/com/streamvault/app/vpn/WireGuardNetworkGuard.kt
+new file mode 100644
+index 00000000..3f6781f4
+--- /dev/null
++++ b/app/src/main/java/com/streamvault/app/vpn/WireGuardNetworkGuard.kt
+@@ -0,0 +1,52 @@
++package com.streamvault.app.vpn
++
++import android.content.Context
++import android.net.Network
++import com.streamvault.player.playback.PlaybackNetworkPolicy
++import okhttp3.Dns
++import okhttp3.Interceptor
++import okhttp3.Response
++
++internal object WireGuardNetworkGuard : Interceptor, PlaybackNetworkPolicy {
++    private val mutableChanges = kotlinx.coroutines.flow.MutableStateFlow(0L)
++    override val changes: kotlinx.coroutines.flow.Flow<Long> = mutableChanges
++    val gate = VpnSocketGate()
++    private var required = false
++    private var installed = false
++    val protectionEnabled: Boolean @Synchronized get() = required
++    override val blocksExternalPlayback: Boolean get() = protectionEnabled
++    private var network: Network? = null
++    private var transport: VpnSocketGate.Transport? = null
++
++    @Synchronized fun install(context: Context) {
++        if (!installed) {
++            setRequired(WireGuardPreferences.get(context).state.value.killSwitch)
++            installed = true
++        }
++    }
++    @Synchronized fun setRequired(value: Boolean) {
++        val changed = required != value
++        required = value
++        gate.configure(required, transport)
++        if (changed) mutableChanges.value += 1
++    }
++    @Synchronized fun connected(value: Network?) {
++        if (network == value) return
++        network = value
++        transport = value?.let { VpnSocketGate.Transport(it.socketFactory, vpnDns { host -> it.getAllByName(host).toList() }) }
++        gate.configure(required, transport)
++        mutableChanges.value += 1
++    }
++    override fun intercept(chain: Interceptor.Chain): Response {
++        gate.check()
++        return chain.proceed(chain.request())
++    }
++    @Synchronized override fun checkPlayback(uri: android.net.Uri) {
++        val scheme = uri.scheme?.lowercase()
++        if (scheme in setOf("file", "content", "asset", "android.resource", "data")) return
++        gate.check()
++        if (required && scheme !in setOf("http", "https")) {
++            throw java.io.IOException("VPN kill switch: unsupported playback transport")
++        }
++    }
++}
+diff --git a/app/src/main/java/com/streamvault/app/vpn/WireGuardNotification.kt b/app/src/main/java/com/streamvault/app/vpn/WireGuardNotification.kt
+new file mode 100644
+index 00000000..1e396160
+--- /dev/null
++++ b/app/src/main/java/com/streamvault/app/vpn/WireGuardNotification.kt
+@@ -0,0 +1,40 @@
++package com.streamvault.app.vpn
++
++import android.app.NotificationChannel
++import android.app.NotificationManager
++import android.app.PendingIntent
++import android.app.Service
++import android.content.Intent
++import android.content.pm.ServiceInfo
++import android.os.Build
++import androidx.core.app.NotificationCompat
++import com.streamvault.app.MainActivity
++import com.streamvault.app.R
++
++private const val CHANNEL = "wireguard_vpn"
++private const val NOTIFICATION_ID = 9417
++
++// Both services share a notification ID; Android retains it until both have stopped.
++internal fun Service.showWireGuardNotification() {
++    val manager = getSystemService(NotificationManager::class.java)
++    if (Build.VERSION.SDK_INT >= 26) {
++        manager.createNotificationChannel(NotificationChannel(
++            CHANNEL, getString(R.string.wg_title), NotificationManager.IMPORTANCE_LOW))
++    }
++    val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
++        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
++    val disconnect = PendingIntent.getService(this, 1,
++        Intent(this, WireGuardForegroundService::class.java).setAction(WireGuardForegroundService.DISCONNECT),
++        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
++    val notification = NotificationCompat.Builder(this, CHANNEL)
++        .setSmallIcon(android.R.drawable.ic_lock_lock)
++        .setContentTitle(getString(R.string.wg_title))
++        .setContentText(getString(R.string.wg_notification))
++        .setContentIntent(open).setOngoing(true)
++        .addAction(0, getString(R.string.wg_disconnect), disconnect).build()
++    if (Build.VERSION.SDK_INT >= 34) {
++        startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
++    } else {
++        startForeground(NOTIFICATION_ID, notification)
++    }
++}
+diff --git a/app/src/main/java/com/streamvault/app/vpn/WireGuardPairingPage.kt b/app/src/main/java/com/streamvault/app/vpn/WireGuardPairingPage.kt
+new file mode 100644
+index 00000000..3a291f29
+--- /dev/null
++++ b/app/src/main/java/com/streamvault/app/vpn/WireGuardPairingPage.kt
+@@ -0,0 +1,51 @@
++package com.streamvault.app.vpn
++
++internal object WireGuardPairingPage {
++    // Token is generated internally from hex; no imported text is interpolated into HTML.
++    fun html(token: String) = """
++        <!doctype html>
++        <html lang="de"><head><meta charset="utf-8">
++        <meta name="viewport" content="width=device-width,initial-scale=1">
++        <title>StreamVault · WireGuard</title>
++        <style>
++        *{box-sizing:border-box}body{font-family:system-ui,sans-serif;background:#101820;color:#f8fafc;margin:0;padding:20px}
++        main{max-width:560px;margin:auto;background:#172635;border:1px solid #2b4258;border-radius:22px;padding:22px}
++        h1{font-size:25px;margin-top:0}p{line-height:1.5;color:#b9c6d3}label{display:block;margin-top:18px;font-weight:700}
++        input,textarea,button{width:100%;font:inherit;margin-top:8px;padding:13px;border-radius:12px;border:1px solid #39546d;background:#0c1620;color:white}
++        textarea{min-height:220px;resize:vertical;font-family:monospace;font-size:14px}button{background:#32d6a0;color:#06110d;font-weight:800;cursor:pointer}
++        button:disabled{opacity:.5}#result{white-space:pre-wrap}input[type=file]{padding:10px}
++        </style></head><body><main>
++        <h1>WireGuard hinzufügen</h1>
++        <p>Wie bei Xtream: auf dem Handy ausfüllen und direkt an den TV senden.
++        Beide Geräte müssen im selben WLAN sein. Die lokale Übertragung verwendet HTTP; nur in einem vertrauenswürdigen Netz nutzen.</p>
++        <form id="form" method="post" action="/submit" autocomplete="off">
++        <input type="hidden" name="token" value="$token">
++        <label for="name">Profilname</label><input id="name" name="name" maxlength="64" placeholder="z. B. Proton VPN">
++        <label for="file">.conf-Datei auswählen</label><input id="file" type="file" accept=".conf,.txt,text/plain,application/octet-stream">
++        <p>Oder den vollständigen Konfigurationstext unten einfügen. Eine ausgewählte Datei wird in dieses Feld übernommen.</p>
++        <label for="config">WireGuard-Konfiguration</label><textarea id="config" name="config" required spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="[Interface]&#10;PrivateKey = …&#10;…"></textarea>
++        <button id="send" type="submit">An TV senden</button>
++        </form><p id="result" role="status" aria-live="polite"></p></main>
++        <script>
++        const form=document.getElementById('form'), file=document.getElementById('file'), config=document.getElementById('config');
++        const nameField=document.getElementById('name'), send=document.getElementById('send'), result=document.getElementById('result');
++        file.addEventListener('change',async()=>{
++          const selected=file.files[0]; if(!selected)return;
++          if(selected.size>65536){result.textContent='Datei ist größer als 64 KiB.';file.value='';return;}
++          send.disabled=true;
++          try{config.value=await selected.text();if(!nameField.value)nameField.value=selected.name.replace(/\.conf$/i,'').slice(0,64);result.textContent='Datei geladen. Jetzt an TV senden.';}
++          catch(e){result.textContent='Datei konnte nicht gelesen werden. Bitte den Text einfügen.';}
++          finally{send.disabled=false;}
++        });
++        form.addEventListener('submit',async(event)=>{
++          event.preventDefault();if(new Blob([config.value]).size>65536){result.textContent='Konfiguration ist größer als 64 KiB.';return;}
++          send.disabled=true;result.textContent='Wird an TV gesendet …';
++          try{
++            const response=await fetch('/submit',{method:'POST',body:new URLSearchParams(new FormData(form)),cache:'no-store'});
++            result.textContent=await response.text();
++            if(response.ok){config.value='';file.value='';form.hidden=true;}else{send.disabled=false;}
++          }catch(e){result.textContent='TV nicht erreichbar oder QR-Sitzung beendet. Am TV prüfen, ob das Profil gespeichert wurde; gegebenenfalls neuen QR-Code öffnen.';send.disabled=false;}
++        });
++        </script></body></html>
++    """.trimIndent()
++}
+diff --git a/app/src/main/java/com/streamvault/app/vpn/WireGuardPairingServer.kt b/app/src/main/java/com/streamvault/app/vpn/WireGuardPairingServer.kt
+new file mode 100644
+index 00000000..a1f336fa
+--- /dev/null
++++ b/app/src/main/java/com/streamvault/app/vpn/WireGuardPairingServer.kt
+@@ -0,0 +1,159 @@
++package com.streamvault.app.vpn
++
++import java.io.BufferedInputStream
++import java.io.Closeable
++import java.io.OutputStream
++import java.net.InetAddress
++import java.net.ServerSocket
++import java.net.Socket
++import java.net.URLDecoder
++import java.security.SecureRandom
++import java.util.concurrent.Executors
++import java.util.concurrent.TimeUnit
++
++/** One-use local phone import. No credentials in URLs, logs or responses. */
++internal class WireGuardPairingServer(
++    address: InetAddress,
++    private val save: (String, String) -> Unit,
++    private val saved: () -> Unit,
++    private val expired: () -> Unit,
++    lifetimeMs: Long = 300_000,
++) : Closeable {
++    private val token = ByteArray(24).also { SecureRandom().nextBytes(it) }
++        .joinToString("") { "%02x".format(it) }
++    private val server = ServerSocket(0, 4, address)
++    private val executor = Executors.newScheduledThreadPool(2)
++    private val lock = Any()
++    @Volatile private var active = true
++    @Volatile private var client: Socket? = null
++    private val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(lifetimeMs)
++    val url = "http://${address.hostAddress}:${server.localPort}/pair?t=$token"
++
++    init {
++        executor.execute {
++            while (active) {
++                val socket = try { server.accept() } catch (_: Exception) { break }
++                client = socket
++                socket.use {
++                    if (active) try { handle(it) } catch (_: Exception) {
++                        // Incomplete/disconnected requests contain secrets; never log them.
++                    }
++                }
++                client = null
++            }
++        }
++        executor.schedule({
++            synchronized(lock) {
++                if (active) { close(); expired() }
++            }
++        }, lifetimeMs, TimeUnit.MILLISECONDS)
++    }
++
++    private fun handle(socket: Socket) {
++        socket.soTimeout = 5_000
++        val input = BufferedInputStream(socket.getInputStream())
++        val request = readLine(input).split(' ')
++        require(request.size == 3)
++        val headers = mutableMapOf<String, String>()
++        var headerSize = 0
++        while (true) {
++            val line = readLine(input)
++            headerSize += line.length + 2
++            require(headerSize <= 8_192)
++            if (line.isEmpty()) break
++            val key = line.substringBefore(':').lowercase()
++            require(key !in headers)
++            headers[key] = line.substringAfter(':').trim()
++        }
++        val output = socket.getOutputStream()
++        val path = request[1].substringBefore('?')
++        if (request[0] == "GET" && path == "/pair") {
++            val supplied = decodeForm(request[1].substringAfter('?', ""))["t"]
++            synchronized(lock) {
++                if (valid(supplied)) respond(output, 200, WireGuardPairingPage.html(token))
++                else respond(output, 403, "QR-Sitzung abgelaufen. Am TV neu starten.")
++            }
++            return
++        }
++        if (request[0] != "POST" || path != "/submit") {
++            respond(output, 404, "Nicht gefunden."); return
++        }
++        val length = headers["content-length"]?.toIntOrNull()
++        if (headers.containsKey("transfer-encoding") || length == null || length !in 1..MAX_FORM_BYTES ||
++            headers["content-type"]?.substringBefore(';') != "application/x-www-form-urlencoded") {
++            respond(output, 400, "Ungültige oder zu große Anfrage."); return
++        }
++        val bytes = ByteArray(length)
++        var count = 0
++        while (count < length) {
++            val read = input.read(bytes, count, length - count)
++            require(read > 0)
++            count += read
++        }
++        val form = decodeForm(String(bytes, Charsets.UTF_8))
++        synchronized(lock) {
++            if (!valid(form["token"])) { respond(output, 403, "QR-Sitzung abgelaufen."); return }
++            val name = form["name"].orEmpty().trim().ifBlank { "WireGuard" }
++            val config = form["config"].orEmpty()
++            if (name.length > 64 || config.isBlank() || config.toByteArray(Charsets.UTF_8).size > 65_536) {
++                respond(output, 400, "Name: maximal 64 Zeichen. Konfiguration: 1 bis 64 KiB."); return
++            }
++            try {
++                save(name, config)
++            } catch (error: Exception) {
++                val message = when ((error as? VpnProfileException)?.reason) {
++                    VpnProfileException.Reason.DNS -> "DNS-Server im Abschnitt Interface ergänzen."
++                    VpnProfileException.Reason.FULL_TUNNEL -> "Ein Peer mit AllowedIPs = 0.0.0.0/0, bei IPv6 zusätzlich ::/0 erforderlich."
++                    VpnProfileException.Reason.INVALID -> "Ungültige WireGuard-Konfiguration. Bitte eine vollständige .conf-Datei verwenden."
++                    else -> "Profil konnte nicht gespeichert werden. Konfiguration und Speicher prüfen."
++                }
++                respond(output, 400, message); return
++            }
++            // Invalidate before acknowledging: a second POST must never save twice.
++            active = false
++            try { respond(output, 200, "Profil gespeichert. Am TV jetzt Verbinden wählen. Dieses Fenster kann geschlossen werden.") }
++            finally { close(); saved() }
++        }
++    }
++
++    private fun valid(value: String?) = active && value == token && System.nanoTime() < deadline
++
++    override fun close() {
++        synchronized(lock) {
++            active = false
++            runCatching { server.close() }
++            runCatching { client?.close() }
++            executor.shutdownNow()
++        }
++    }
++
++    private fun respond(output: OutputStream, status: Int, body: String) {
++        val bytes = body.toByteArray(Charsets.UTF_8)
++        val type = if (body.startsWith("<!doctype")) "text/html" else "text/plain"
++        output.write(("HTTP/1.1 $status Response\r\nContent-Type: $type; charset=utf-8\r\n" +
++            "Content-Length: ${bytes.size}\r\nCache-Control: no-store\r\n" +
++            "Referrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\n" +
++            "Content-Security-Policy: default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'\r\n" +
++            "Connection: close\r\n\r\n").toByteArray(Charsets.UTF_8))
++        output.write(bytes)
++        output.flush()
++    }
++
++    private fun readLine(input: BufferedInputStream): String {
++        val bytes = java.io.ByteArrayOutputStream()
++        while (bytes.size() < 8_192) {
++            val next = input.read()
++            require(next >= 0)
++            if (next == 10) return bytes.toString("US-ASCII").removeSuffix("\r")
++            bytes.write(next)
++        }
++        error("Header limit")
++    }
++
++    private fun decodeForm(body: String): Map<String, String> = body.split('&').associate {
++        URLDecoder.decode(it.substringBefore('='), "UTF-8") to
++            URLDecoder.decode(it.substringAfter('=', ""), "UTF-8")
++    }
++
++    companion object { private const val MAX_FORM_BYTES = 600_000 }
++}
+diff --git a/app/src/main/java/com/streamvault/app/vpn/WireGuardPreferences.kt b/app/src/main/java/com/streamvault/app/vpn/WireGuardPreferences.kt
+new file mode 100644
+index 00000000..c1e5fd98
+--- /dev/null
++++ b/app/src/main/java/com/streamvault/app/vpn/WireGuardPreferences.kt
+@@ -0,0 +1,47 @@
++package com.streamvault.app.vpn
++
++import android.content.Context
++import com.streamvault.torrent.TorrentPlaybackService
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.asStateFlow
++
++internal data class WireGuardOptions(
++    val autoConnect: Boolean = false,
++    val killSwitch: Boolean = false,
++    val showStatus: Boolean = false,
++    val profileId: String? = null
++)
++
++internal class WireGuardPreferences private constructor(context: Context) {
++    private val prefsContext = context.applicationContext
++    private val prefs = prefsContext.getSharedPreferences("wireguard-options", Context.MODE_PRIVATE)
++    private val mutableState = MutableStateFlow(WireGuardOptions(
++        prefs.getBoolean("auto", false), prefs.getBoolean("kill", false),
++        prefs.getBoolean("status", false), prefs.getString("profile", null)
++    ))
++    val state = mutableState.asStateFlow()
++
++    @Synchronized fun update(transform: (WireGuardOptions) -> WireGuardOptions) {
++        WireGuardNetworkGuard.install(prefsContext)
++        val next = transform(state.value)
++        // Close pre-existing direct sockets before the switch can become active.
++        WireGuardNetworkGuard.setRequired(next.killSwitch)
++        if (next.killSwitch && !state.value.killSwitch) {
++            TorrentPlaybackService.stopForVpn()
++        }
++        val persisted = prefs.edit().putBoolean("auto", next.autoConnect).putBoolean("kill", next.killSwitch)
++            .putBoolean("status", next.showStatus).putString("profile", next.profileId).commit()
++        if (!persisted) {
++            WireGuardNetworkGuard.setRequired(state.value.killSwitch)
++            error("Could not persist VPN options")
++        }
++        mutableState.value = next
++    }
++
++    companion object {
++        @Volatile private var instance: WireGuardPreferences? = null
++        fun get(context: Context): WireGuardPreferences = instance ?: synchronized(this) {
++            instance ?: WireGuardPreferences(context).also { instance = it }
++        }
++    }
++}
+diff --git a/app/src/main/java/com/streamvault/app/vpn/WireGuardProfileStore.kt b/app/src/main/java/com/streamvault/app/vpn/WireGuardProfileStore.kt
+new file mode 100644
+index 00000000..a90c9df5
+--- /dev/null
++++ b/app/src/main/java/com/streamvault/app/vpn/WireGuardProfileStore.kt
+@@ -0,0 +1,98 @@
++package com.streamvault.app.vpn
++
++import android.content.Context
++import android.security.keystore.KeyGenParameterSpec
++import android.security.keystore.KeyProperties
++import android.util.AtomicFile
++import org.json.JSONArray
++import org.json.JSONObject
++import java.io.File
++import java.security.KeyStore
++import java.util.UUID
++import javax.crypto.Cipher
++import javax.crypto.KeyGenerator
++import javax.crypto.SecretKey
++import javax.crypto.spec.GCMParameterSpec
++
++internal data class VpnProfile(val id: String, val name: String)
++
++/** All profiles (including names) are encrypted and excluded from Android/app backups. */
++internal class WireGuardProfileStore(private val context: Context) {
++    private val file = AtomicFile(File(context.noBackupFilesDir, "wireguard-profiles.enc"))
++
++    fun list(): List<VpnProfile> = synchronized(lock) {
++        val entries = read()
++        List(entries.length()) { i ->
++            entries.getJSONObject(i).let { VpnProfile(it.getString("id"), it.getString("name")) }
++        }
++    }
++
++    fun config(id: String) = synchronized(lock) {
++        val entries = read()
++        val entry = (0 until entries.length()).map { entries.getJSONObject(it) }
++            .firstOrNull { it.getString("id") == id }
++            ?: throw VpnProfileException(VpnProfileException.Reason.STORAGE)
++        WireGuardConfigPolicy.parse(entry.getString("config"), context.packageName)
++    }
++
++    fun add(name: String, text: String) = synchronized(lock) {
++        require(name.trim().isNotEmpty() && name.trim().length <= 64)
++        val config = WireGuardConfigPolicy.parse(text, context.packageName)
++        val entries = read()
++        require(entries.length() < 32)
++        entries.put(JSONObject().put("id", UUID.randomUUID().toString())
++            .put("name", name.trim()).put("config", config.toWgQuickString()))
++        write(entries)
++    }
++
++    fun delete(id: String) = synchronized(lock) {
++        val old = read()
++        val entries = JSONArray()
++        for (i in 0 until old.length()) {
++            val entry = old.getJSONObject(i)
++            if (entry.getString("id") != id) entries.put(entry)
++        }
++        write(entries)
++    }
++
++    private fun key(): SecretKey {
++        val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
++        (store.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
++        return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").run {
++            init(KeyGenParameterSpec.Builder(KEY_ALIAS,
++                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
++                .setKeySize(256)
++                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
++                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
++            generateKey()
++        }
++    }
++
++    private fun read(): JSONArray {
++        if (!file.baseFile.exists() && !File(file.baseFile.path + ".bak").exists()) return JSONArray()
++        val envelope = file.readFully()
++        require(envelope.size >= 29 && envelope[0] == 1.toByte())
++        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
++        cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, envelope.copyOfRange(1, 13)))
++        return JSONArray(String(cipher.doFinal(envelope.copyOfRange(13, envelope.size)), Charsets.UTF_8))
++    }
++
++    private fun write(entries: JSONArray) {
++        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
++        cipher.init(Cipher.ENCRYPT_MODE, key())
++        val envelope = byteArrayOf(1) + cipher.iv + cipher.doFinal(entries.toString().toByteArray(Charsets.UTF_8))
++        val output = file.startWrite()
++        try {
++            output.write(envelope)
++            file.finishWrite(output)
++        } catch (error: Exception) {
++            file.failWrite(output)
++            throw error
++        }
++    }
++
++    companion object {
++        private const val KEY_ALIAS = "streamvault-wireguard-v1"
++        private val lock = Any()
++    }
++}
+diff --git a/app/src/main/java/com/streamvault/app/vpn/WireGuardTunnelService.kt b/app/src/main/java/com/streamvault/app/vpn/WireGuardTunnelService.kt
+new file mode 100644
+index 00000000..903414ea
+--- /dev/null
++++ b/app/src/main/java/com/streamvault/app/vpn/WireGuardTunnelService.kt
+@@ -0,0 +1,31 @@
++package com.streamvault.app.vpn
++
++import android.content.Intent
++import com.wireguard.android.backend.GoBackend
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.asStateFlow
++
++/** Explicitly started before GoBackend.setState; exposes completion of backend teardown. */
++class WireGuardTunnelService : GoBackend.VpnService() {
++    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
++        super.onStartCommand(intent, flags, startId)
++        if (intent == null) stopSelf()
++        return START_NOT_STICKY
++    }
++
++    override fun onCreate() {
++        super.onCreate()
++        showWireGuardNotification()
++        mutableReady.value = true
++    }
++
++    override fun onDestroy() {
++        super.onDestroy()
++        mutableReady.value = false
++    }
++
++    companion object {
++        private val mutableReady = MutableStateFlow(false)
++        internal val ready = mutableReady.asStateFlow()
++    }
++}
+diff --git a/app/src/main/java/com/streamvault/app/vpn/WireGuardUi.kt b/app/src/main/java/com/streamvault/app/vpn/WireGuardUi.kt
+new file mode 100644
+index 00000000..5302683c
+--- /dev/null
++++ b/app/src/main/java/com/streamvault/app/vpn/WireGuardUi.kt
+@@ -0,0 +1,12 @@
++package com.streamvault.app.vpn
++
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.asStateFlow
++
++internal object WireGuardUi {
++    @Volatile var settingsVisible: Boolean = false
++    private val mutableOpen = MutableStateFlow(false)
++    val open = mutableOpen.asStateFlow()
++    fun show() { mutableOpen.value = true }
++    fun close() { mutableOpen.value = false }
++}
+diff --git a/app/src/main/java/com/streamvault/app/vpn/WireGuardViewModel.kt b/app/src/main/java/com/streamvault/app/vpn/WireGuardViewModel.kt
+new file mode 100644
+index 00000000..1a31d57f
+--- /dev/null
++++ b/app/src/main/java/com/streamvault/app/vpn/WireGuardViewModel.kt
+@@ -0,0 +1,169 @@
++package com.streamvault.app.vpn
++
++import android.app.Application
++import android.net.Uri
++import android.net.ConnectivityManager
++import android.net.NetworkCapabilities
++import android.graphics.Bitmap
++import com.google.zxing.BarcodeFormat
++import com.google.zxing.EncodeHintType
++import com.google.zxing.qrcode.QRCodeWriter
++import java.net.Inet4Address
++import androidx.lifecycle.AndroidViewModel
++import androidx.lifecycle.viewModelScope
++import com.streamvault.app.R
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.sync.Mutex
++import kotlinx.coroutines.sync.withLock
++import kotlinx.coroutines.withContext
++
++internal data class VpnProfilesState(
++    val profiles: List<VpnProfile> = emptyList(),
++    val busy: Boolean = true,
++    val error: Int? = null,
++    val importFinished: Int = 0
++)
++
++internal data class WireGuardPairingState(val qr: Bitmap? = null, val error: Int? = null)
++
++internal class WireGuardViewModel(application: Application) : AndroidViewModel(application) {
++    private val store = WireGuardProfileStore(application)
++    private val mutex = Mutex()
++    private val mutableState = MutableStateFlow(VpnProfilesState())
++    val state = mutableState.asStateFlow()
++    val status = WireGuardForegroundService.status
++    private val preferences = WireGuardPreferences.get(application)
++    val options = preferences.state
++
++    fun setAutoConnect(value: Boolean) = changeOptions { it.copy(autoConnect = value,
++        profileId = it.profileId ?: state.value.profiles.firstOrNull()?.id) }
++    fun setKillSwitch(value: Boolean) = changeOptions { it.copy(killSwitch = value) }
++    fun setShowStatus(value: Boolean) = changeOptions { it.copy(showStatus = value) }
++    fun selectProfile(id: String) = changeOptions { it.copy(profileId = id) }
++    private fun changeOptions(transform: (WireGuardOptions) -> WireGuardOptions) {
++        try { preferences.update(transform) } catch (_: Exception) { reportError(R.string.wg_error_storage) }
++    }
++
++    private val pairingLock = Any()
++    private var pairingGeneration = 0
++    private var pairingServer: WireGuardPairingServer? = null
++    private val mutablePairing = MutableStateFlow(WireGuardPairingState())
++    val pairing = mutablePairing.asStateFlow()
++
++    fun startPairing() {
++        stopPairing()
++        val generation = synchronized(pairingLock) { pairingGeneration }
++        viewModelScope.launch(Dispatchers.IO) {
++            synchronized(pairingLock) {
++                if (generation != pairingGeneration) return@launch
++                try {
++                    val app = getApplication<Application>()
++                    val manager = app.getSystemService(ConnectivityManager::class.java)
++                    // Select a physical Wi-Fi/Ethernet address, never a VPN/tunnel interface.
++                    val address = manager.allNetworks.asSequence().filter { network ->
++                        val caps = manager.getNetworkCapabilities(network)
++                        caps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == false &&
++                            (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
++                                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))
++                    }.flatMap { manager.getLinkProperties(it)?.linkAddresses.orEmpty().asSequence() }
++                        .map { it.address }.filterIsInstance<Inet4Address>()
++                        .firstOrNull { !it.isLoopbackAddress && !it.isLinkLocalAddress }
++                        ?: error("No LAN address")
++                    val server = WireGuardPairingServer(address,
++                        save = { name, config -> store.add(name, config) },
++                        saved = { viewModelScope.launch {
++                            val current = generation == synchronized(pairingLock) { pairingGeneration }
++                            if (current) stopPairing()
++                            operation(importing = current) { }
++                        } },
++                        expired = { viewModelScope.launch {
++                            if (generation == synchronized(pairingLock) { pairingGeneration }) {
++                                stopPairing()
++                                mutablePairing.value = WireGuardPairingState(error = R.string.wg_pairing_expired)
++                            }
++                        } })
++                    pairingServer = server
++                    val size = 384
++                    val matrix = QRCodeWriter().encode(server.url, BarcodeFormat.QR_CODE, size, size,
++                        mapOf(EncodeHintType.MARGIN to 2))
++                    val pixels = IntArray(size * size) { i ->
++                        if (matrix[i % size, i / size]) android.graphics.Color.BLACK else android.graphics.Color.WHITE
++                    }
++                    mutablePairing.value = WireGuardPairingState(
++                        qr = Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888))
++                } catch (_: Exception) {
++                    pairingServer?.close()
++                    pairingServer = null
++                    mutablePairing.value = WireGuardPairingState(error = R.string.wg_pairing_error)
++                }
++            }
++        }
++    }
++
++    fun stopPairing() {
++        synchronized(pairingLock) {
++            pairingGeneration++
++            pairingServer?.close()
++            pairingServer = null
++            mutablePairing.value = WireGuardPairingState()
++        }
++    }
++
++    override fun onCleared() { stopPairing(); super.onCleared() }
++
++    init { operation { } }
++
++    fun importText(name: String, config: String) = operation(importing = true) { store.add(name, config) }
++
++    fun importFile(name: String, uri: Uri) = operation(importing = true) {
++        val bytes = getApplication<Application>().contentResolver.openInputStream(uri)?.use { stream ->
++            val out = java.io.ByteArrayOutputStream()
++            val buffer = ByteArray(4096)
++            while (true) {
++                val count = stream.read(buffer)
++                if (count < 0) break
++                if (out.size() + count > WireGuardConfigPolicy.MAX_BYTES) {
++                    throw VpnProfileException(VpnProfileException.Reason.TOO_LARGE)
++                }
++                out.write(buffer, 0, count)
++            }
++            out.toByteArray()
++        } ?: throw VpnProfileException(VpnProfileException.Reason.STORAGE)
++        store.add(name, String(bytes, Charsets.UTF_8))
++    }
++
++    fun delete(id: String) = operation {
++        check(!status.value.occupied || status.value.profileId != id)
++        store.delete(id)
++        if (options.value.profileId == id) preferences.update { it.copy(profileId = null, autoConnect = false) }
++    }
++
++    fun reportError(message: Int) { mutableState.value = mutableState.value.copy(error = message) }
++
++    private fun operation(importing: Boolean = false, block: () -> Unit) {
++        viewModelScope.launch {
++            mutex.withLock {
++                mutableState.value = mutableState.value.copy(busy = true, error = null)
++                try {
++                    val profiles = withContext(Dispatchers.IO) { block(); store.list() }
++                    mutableState.value = mutableState.value.copy(profiles = profiles, busy = false,
++                        importFinished = mutableState.value.importFinished + if (importing) 1 else 0)
++                } catch (cancelled: kotlinx.coroutines.CancellationException) {
++                    throw cancelled
++                } catch (error: Exception) {
++                    val message = when ((error as? VpnProfileException)?.reason) {
++                        VpnProfileException.Reason.INVALID -> R.string.wg_error_config
++                        VpnProfileException.Reason.FULL_TUNNEL -> R.string.wg_error_routes
++                        VpnProfileException.Reason.DNS -> R.string.wg_error_dns
++                        VpnProfileException.Reason.TOO_LARGE -> R.string.wg_error_size
++                        else -> R.string.wg_error_storage
++                    }
++                    mutableState.value = mutableState.value.copy(busy = false, error = message)
++                }
++            }
++        }
++    }
++}
+diff --git a/app/src/main/java/com/streamvault/torrent/TorrentPlaybackService.kt b/app/src/main/java/com/streamvault/torrent/TorrentPlaybackService.kt
+index 20328eab..be259a16 100644
+--- a/app/src/main/java/com/streamvault/torrent/TorrentPlaybackService.kt
++++ b/app/src/main/java/com/streamvault/torrent/TorrentPlaybackService.kt
+@@ -20,6 +20,8 @@ import com.streamvault.domain.model.TorrentCacheClearResult
+ import com.streamvault.domain.model.TorrentCacheStatus
+ import java.util.concurrent.CompletableFuture
+ import java.util.concurrent.TimeUnit
++import java.io.IOException
++import com.streamvault.app.vpn.WireGuardNetworkGuard
+ 
+ /** Hosts the app's built-in torrent engine and its loopback-only playback endpoint. */
+ class TorrentPlaybackService : Service() {
+@@ -57,6 +59,7 @@ class TorrentPlaybackService : Service() {
+         var createdEngine: TorrentEngine? = null
+         var createdServer: LocalRangeServer? = null
+         try {
++            checkTorrentNetwork()
+             createdEngine = TorrentEngine(this, TorrentPreferences(this))
+             createdServer = LocalRangeServer(createdEngine)
+             createdEngine.setLoopbackBaseUrl(createdServer.baseUrl)
+@@ -171,7 +174,10 @@ class TorrentPlaybackService : Service() {
+             magnet: String,
+             forDownload: Boolean
+         ): PreparedTorrent {
++            WireGuardNetworkGuard.install(context)
++            checkTorrentNetwork()
+             val service = ensureStarted(context)
++            checkTorrentNetwork()
+             val prepared = checkNotNull(service.engine).prepare(magnet, forDownload)
+             service.mainHandler.removeCallbacks(service.refreshNotification)
+             service.mainHandler.removeCallbacks(service.idleStop)
+@@ -179,6 +185,19 @@ class TorrentPlaybackService : Service() {
+             return prepared
+         }
+ 
++        private fun checkTorrentNetwork() {
++            if (WireGuardNetworkGuard.protectionEnabled) {
++                throw IOException("VPN kill switch: torrent transport is blocked")
++            }
++        }
++
++        internal fun stopForVpn() {
++            val service = instance ?: return
++            service.mainHandler.removeCallbacksAndMessages(null)
++            service.engine?.close()
++            service.stopSelf()
++        }
++
+         internal fun stopPlayback(outputUrl: String) {
+             val service = instance ?: return
+             service.engine?.stop(outputUrl)
+diff --git a/app/src/main/res/values-de/wireguard.xml b/app/src/main/res/values-de/wireguard.xml
+new file mode 100644
+index 00000000..b36ba078
+--- /dev/null
++++ b/app/src/main/res/values-de/wireguard.xml
+@@ -0,0 +1,63 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <string name="wg_title">WireGuard VPN</string>
++    <string name="wg_scope">Nur diese App nutzt das VPN. Andere Apps, externe Player und Cast-Empfänger verwenden ihre eigene Verbindung.</string>
++    <string name="wg_notification">WireGuard-Tunnel für StreamVault</string>
++    <string name="wg_off">Nicht verbunden</string>
++    <string name="wg_connecting">Tunnel wird gestartet…</string>
++    <string name="wg_up">Tunnel aktiv</string>
++    <string name="wg_disconnecting">Verbindung wird getrennt…</string>
++    <string name="wg_handshake">Handshake vom VPN-Server empfangen</string>
++    <string name="wg_waiting">Warte auf Server-Handshake. Ein aktiver Tunnel allein bestätigt noch keine erreichbare VPN-Verbindung.</string>
++    <string name="wg_add">Profil hinzufügen</string>
++    <string name="wg_connect">Verbinden</string>
++    <string name="wg_disconnect">Trennen</string>
++    <string name="wg_selected">Ausgewählt</string>
++    <string name="wg_delete">Profil löschen</string>
++    <string name="wg_delete_confirm">Dieses gespeicherte VPN-Profil dauerhaft löschen?</string>
++    <string name="wg_close">Schließen</string>
++    <string name="wg_cancel">Abbrechen</string>
++    <string name="wg_empty">Noch keine WireGuard-Profile vorhanden.</string>
++    <string name="wg_name">Profilname</string>
++    <string name="wg_config">WireGuard-Konfiguration einfügen</string>
++    <string name="wg_save">Konfiguration speichern</string>
++    <string name="wg_import_file">Datei auf diesem Gerät auswählen</string>
++    <string name="wg_import_hint">QR-Code mit dem Handy scannen und dort die Konfiguration einfügen oder eine .conf-Datei auswählen.</string>
++    <string name="wg_lifecycle">Bleibt im Hintergrund aktiv. Autostart verbindet beim nächsten Öffnen der App erneut. Bei aktivem Kill-Switch bleibt IPTV auch nach dem Trennen gesperrt. Android erlaubt jeweils ein VPN.</string>
++    <string name="wg_error_permission">VPN-Freigabe abgelehnt oder auf diesem Gerät nicht verfügbar.</string>
++    <string name="wg_error_connect">VPN konnte nicht gestartet werden. Profil, Netzwerk und Android-VPN-Freigabe prüfen.</string>
++    <string name="wg_error_config">Ungültige WireGuard-Konfiguration. Schlüssel, Interface-Adresse und Peer-Endpunkt prüfen. Desktop-Skripte werden nicht unterstützt.</string>
++    <string name="wg_error_routes">Ein Peer mit AllowedIPs = 0.0.0.0/0 und bei konfiguriertem IPv6 zusätzlich ::/0 ist erforderlich. Teilnetz-Tunnel werden nicht unterstützt.</string>
++    <string name="wg_error_dns">Mindestens eine DNS-Server-Adresse im Abschnitt Interface ergänzen.</string>
++    <string name="wg_error_size">Konfiguration überschreitet die Grenze von 64 KiB.</string>
++    <string name="wg_error_storage">Profil konnte nicht gelesen oder gespeichert werden. Datei prüfen und einen Namen mit maximal 64 Zeichen wählen. Höchstens 32 Profile.</string>
++    <string name="wg_error_picker">Auf diesem Gerät ist keine Dateiauswahl verfügbar. Bitte die Datei über den QR-Code am Handy auswählen.</string>
++    <string name="wg_phone">WireGuard am Handy hinzufügen</string>
++    <string name="wg_phone_hint">Handy und TV mit demselben WLAN verbinden. Am Handy Konfiguration einfügen oder Datei auswählen und „An TV senden“ drücken. Der QR-Code gilt 5 Minuten.</string>
++    <string name="wg_pairing_retry">Neuen QR-Code anzeigen</string>
++    <string name="wg_pairing_error">QR-Code konnte nicht gestartet werden. WLAN/LAN prüfen und erneut versuchen.</string>
++    <string name="wg_pairing_expired">QR-Code abgelaufen. Bitte einen neuen Code anzeigen.</string>
++    <string name="wg_auto">VPN bei App-Start verbinden</string>
++    <string name="wg_auto_hint">Beim Öffnen der App automatisch das gewählte Profil verbinden.</string>
++    <string name="wg_kill">VPN Kill-Switch</string>
++    <string name="wg_kill_hint">IPTV, EPG und Downloads nur über bestätigtes VPN. Ohne VPN bleibt der Zugriff gesperrt.</string>
++    <string name="wg_status_toggle">VPN-Status im App-Menü</string>
++    <string name="wg_status_hint">Zeigt einen anklickbaren VPN-Reiter im oberen Menü.</string>
++    <string name="wg_nav_connected">VPN Verbunden</string>
++    <string name="wg_nav_disconnected">VPN Getrennt</string>
++    <string name="wg_auto_profile">Autostart-Profil: %1$s</string>
++    <string name="wg_auto_profile_none">Noch keines gewählt</string>
++    <string name="wg_auto_profile_select">Für Autostart auswählen</string>
++    <string name="wg_auto_profile_selected">Autostart-Profil ausgewählt</string>
++    <string name="wg_step_profile">Profil wird geladen · Schritt 1 von 3</string>
++    <string name="wg_step_tunnel">VPN-Tunnel wird eingerichtet · Schritt 2 von 3</string>
++    <string name="wg_step_handshake">Antwort des VPN-Servers abwarten · Schritt 3 von 3</string>
++    <string name="wg_connection_timeout">VPN-Verbindung konnte nicht bestätigt werden. Profil und Netzwerk prüfen und erneut verbinden.</string>
++    <string name="wg_connection_lost">VPN-Verbindung unterbrochen. Mit aktivem Kill-Switch ist der IPTV-Zugriff gesperrt.</string>
++    <string name="wg_warning">VPN-Warnung</string>
++    <string name="wg_blocked">Kill-Switch aktiv: IPTV-Zugriff gesperrt, bis das VPN verbunden ist.</string>
++    <string name="wg_select_profile">Bitte zuerst im VPN-Menü ein Profil für den Autostart auswählen.</string>
++    <string name="wg_auto_permission">VPN-Freigabe fehlt. Im VPN-Menü einmal manuell verbinden und die Android-Freigabe bestätigen.</string>
++    <string name="wg_external_blocked">Mit aktivem VPN-Kill-Switch bitte den internen Player verwenden. Externe Player und Cast nutzen nicht dieses App-VPN.</string>
++    <string name="wg_kill_external_hint">Bei aktivem Kill-Switch sind neue Starts externer Player, Cast und externer Plugins gesperrt. Bereits extern gestartete Wiedergabe dort beenden.</string>
++</resources>
+diff --git a/app/src/main/res/values/wireguard.xml b/app/src/main/res/values/wireguard.xml
+new file mode 100644
+index 00000000..c6bb20cf
+--- /dev/null
++++ b/app/src/main/res/values/wireguard.xml
+@@ -0,0 +1,63 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <string name="wg_title">WireGuard VPN</string>
++    <string name="wg_scope">Routes only this app through your VPN. Other apps, external players and Cast receivers use their own connection.</string>
++    <string name="wg_notification">WireGuard tunnel for StreamVault</string>
++    <string name="wg_off">Disconnected</string>
++    <string name="wg_connecting">Starting tunnel…</string>
++    <string name="wg_up">Tunnel active</string>
++    <string name="wg_disconnecting">Disconnecting…</string>
++    <string name="wg_handshake">VPN server handshake received</string>
++    <string name="wg_waiting">Waiting for server handshake. An active tunnel alone does not confirm server reachability.</string>
++    <string name="wg_add">Add profile</string>
++    <string name="wg_connect">Connect</string>
++    <string name="wg_disconnect">Disconnect</string>
++    <string name="wg_selected">Selected</string>
++    <string name="wg_delete">Delete profile</string>
++    <string name="wg_delete_confirm">Permanently delete this saved VPN profile?</string>
++    <string name="wg_close">Close</string>
++    <string name="wg_cancel">Cancel</string>
++    <string name="wg_empty">No WireGuard profiles yet.</string>
++    <string name="wg_name">Profile name</string>
++    <string name="wg_config">Paste WireGuard configuration</string>
++    <string name="wg_save">Save configuration</string>
++    <string name="wg_import_file">Select a file on this device</string>
++    <string name="wg_import_hint">Scan the QR code with your phone, then paste your configuration or select a .conf file.</string>
++    <string name="wg_lifecycle">Stays active in the background. Automatic startup reconnects when the app opens. The kill switch keeps IPTV blocked after disconnecting. Android allows one VPN at a time.</string>
++    <string name="wg_error_permission">VPN permission was denied or is unavailable on this device.</string>
++    <string name="wg_error_connect">Could not start the VPN. Check the profile, network and Android VPN permission.</string>
++    <string name="wg_error_config">Invalid WireGuard configuration. Check keys, interface address and peer endpoint. Desktop scripts are unsupported.</string>
++    <string name="wg_error_routes">Use one peer with AllowedIPs = 0.0.0.0/0 and, when IPv6 is configured, ::/0. Split tunnels are unsupported.</string>
++    <string name="wg_error_dns">Add at least one DNS server address to the Interface section.</string>
++    <string name="wg_error_size">Configuration exceeds the 64 KiB limit.</string>
++    <string name="wg_error_storage">Could not read or save the profile. Check the file and use a name up to 64 characters. Maximum 32 profiles.</string>
++    <string name="wg_error_picker">No file picker on this device. Select the file on your phone using the QR code.</string>
++    <string name="wg_phone">Add WireGuard from your phone</string>
++    <string name="wg_phone_hint">Connect phone and TV to the same Wi-Fi. Paste the configuration or select a file on your phone, then send it to the TV. The QR code expires after 5 minutes.</string>
++    <string name="wg_pairing_retry">Show a new QR code</string>
++    <string name="wg_pairing_error">Could not start phone import. Check Wi-Fi/LAN and try again.</string>
++    <string name="wg_pairing_expired">QR code expired. Please show a new code.</string>
++    <string name="wg_auto">Connect VPN at app start</string>
++    <string name="wg_auto_hint">Automatically connect the selected profile when opening the app.</string>
++    <string name="wg_kill">VPN kill switch</string>
++    <string name="wg_kill_hint">IPTV, EPG and downloads require a confirmed VPN connection. Access stays blocked without VPN.</string>
++    <string name="wg_status_toggle">VPN status in app menu</string>
++    <string name="wg_status_hint">Show a clickable VPN tab in the top menu.</string>
++    <string name="wg_nav_connected">VPN Connected</string>
++    <string name="wg_nav_disconnected">VPN Disconnected</string>
++    <string name="wg_auto_profile">Startup profile: %1$s</string>
++    <string name="wg_auto_profile_none">None selected</string>
++    <string name="wg_auto_profile_select">Select for automatic startup</string>
++    <string name="wg_auto_profile_selected">Selected startup profile</string>
++    <string name="wg_step_profile">Loading profile · Step 1 of 3</string>
++    <string name="wg_step_tunnel">Creating VPN tunnel · Step 2 of 3</string>
++    <string name="wg_step_handshake">Waiting for VPN server · Step 3 of 3</string>
++    <string name="wg_connection_timeout">Could not confirm the VPN connection. Check the profile and network, then reconnect.</string>
++    <string name="wg_connection_lost">VPN connection interrupted. IPTV access is blocked while the kill switch is enabled.</string>
++    <string name="wg_warning">VPN warning</string>
++    <string name="wg_blocked">Kill switch active: IPTV access blocked until the VPN connects.</string>
++    <string name="wg_select_profile">Select a startup profile in the VPN menu first.</string>
++    <string name="wg_auto_permission">VPN permission is missing. Connect manually in the VPN menu once and approve the Android dialog.</string>
++    <string name="wg_external_blocked">Use the internal player while the VPN kill switch is enabled. External players and Cast do not use this app VPN.</string>
++    <string name="wg_kill_external_hint">The kill switch blocks new external-player, Cast and external-plugin requests. Stop any playback already running externally on that device.</string>
++</resources>
+diff --git a/app/src/test/java/com/streamvault/app/vpn/VpnConnectionHealthTest.kt b/app/src/test/java/com/streamvault/app/vpn/VpnConnectionHealthTest.kt
+new file mode 100644
+index 00000000..c8bee156
+--- /dev/null
++++ b/app/src/test/java/com/streamvault/app/vpn/VpnConnectionHealthTest.kt
+@@ -0,0 +1,28 @@
++package com.streamvault.app.vpn
++
++import org.junit.Assert.*
++import org.junit.Test
++
++class VpnConnectionHealthTest {
++    @Test fun noHandshakeOrReplyNeverCountsAsConnected() {
++        assertFalse(VpnConnectionHealth().observe(0, 0, false))
++    }
++    @Test fun handshakeConfirmsStartupButAnOldHandshakeDoesNotExtendLiveness() {
++        val health = VpnConnectionHealth()
++        assertTrue(health.observe(0, 1234, false))
++        assertTrue(health.observe(29_999, 1234, false))
++        assertFalse(health.observe(30_000, 1234, false))
++    }
++    @Test fun successfulVpnProbeRecoversAfterOutage() {
++        val health = VpnConnectionHealth()
++        assertTrue(health.observe(0, 1234, false))
++        assertFalse(health.observe(30_000, 1234, false))
++        assertTrue(health.observe(31_000, 1234, true))
++    }
++    @Test fun newHandshakeRenewsHealthEvenWithoutDnsReply() {
++        val health = VpnConnectionHealth()
++        health.observe(0, 1234, false)
++        assertTrue(health.observe(30_000, 2345, false))
++        assertFalse(health.observe(60_000, 2345, false))
++    }
++}
+diff --git a/app/src/test/java/com/streamvault/app/vpn/VpnSocketGateTest.kt b/app/src/test/java/com/streamvault/app/vpn/VpnSocketGateTest.kt
+new file mode 100644
+index 00000000..37c6ca06
+--- /dev/null
++++ b/app/src/test/java/com/streamvault/app/vpn/VpnSocketGateTest.kt
+@@ -0,0 +1,92 @@
++package com.streamvault.app.vpn
++
++import java.io.IOException
++import java.net.InetAddress
++import java.net.Socket
++import javax.net.SocketFactory
++import okhttp3.Dns
++import org.junit.Assert.*
++import org.junit.Test
++
++class VpnSocketGateTest {
++    private class CountingFactory : SocketFactory() {
++        var created = 0
++        override fun createSocket(): Socket { created++; return Socket() }
++        override fun createSocket(h: String, p: Int): Socket = error("Unexpected direct dial")
++        override fun createSocket(h: String, p: Int, l: InetAddress, lp: Int): Socket = error("Unexpected direct dial")
++        override fun createSocket(h: InetAddress, p: Int): Socket = error("Unexpected direct dial")
++        override fun createSocket(h: InetAddress, p: Int, l: InetAddress, lp: Int): Socket = error("Unexpected direct dial")
++    }
++
++    private fun blocked(block: () -> Unit) {
++        try { block(); fail("Expected the kill switch to block") } catch (_: IOException) { }
++    }
++
++    @Test fun coldStartWithKillSwitchBlocksSocketsAndDns() {
++        val gate = VpnSocketGate()
++        gate.configure(true, null)
++        blocked { gate.socketFactory.createSocket() }
++        blocked { gate.dns.lookup("provider.invalid") }
++    }
++
++    @Test fun disablingKillSwitchRestoresOrdinarySocketCreation() {
++        val gate = VpnSocketGate()
++        gate.configure(true, null)
++        gate.configure(false, null)
++        gate.socketFactory.createSocket().use { assertFalse(it.isClosed) }
++    }
++
++    @Test fun enablingKillSwitchClosesPreExistingDirectConnections() {
++        val gate = VpnSocketGate()
++        val before = gate.socketFactory.createSocket()
++        gate.configure(true, null)
++        assertTrue(before.isClosed)
++        blocked { gate.socketFactory.createSocket() }
++    }
++
++    @Test fun protectedSocketsAndDnsUseOnlyTheVpnTransport() {
++        val gate = VpnSocketGate()
++        val factory = CountingFactory()
++        val expected = InetAddress.getByAddress(byteArrayOf(10, 2, 3, 4))
++        var dnsCalls = 0
++        gate.configure(true, VpnSocketGate.Transport(factory, vpnDns { dnsCalls++; listOf(expected) }))
++        gate.socketFactory.createSocket().use { assertEquals(1, factory.created) }
++        assertEquals(listOf(expected), gate.dns.lookup("provider.invalid"))
++        assertEquals(1, dnsCalls)
++    }
++
++    @Test fun vpnLossClosesExistingSocketAndNeverFallsBack() {
++        val gate = VpnSocketGate()
++        val factory = CountingFactory()
++        gate.configure(true, VpnSocketGate.Transport(factory, vpnDns { emptyList() }))
++        val socket = gate.socketFactory.createSocket()
++        gate.configure(true, null)
++        assertTrue(socket.isClosed)
++        blocked { gate.socketFactory.createSocket() }
++        blocked { gate.dns.lookup("provider.invalid") }
++        assertEquals(1, factory.created)
++    }
++
++    @Test fun reconnectionUsesNewTransportAndClosesOldPoolSockets() {
++        val gate = VpnSocketGate()
++        val old = CountingFactory()
++        val next = CountingFactory()
++        gate.configure(true, VpnSocketGate.Transport(old, vpnDns { emptyList() }))
++        val socket = gate.socketFactory.createSocket()
++        gate.configure(true, VpnSocketGate.Transport(next, vpnDns { emptyList() }))
++        assertTrue(socket.isClosed)
++        gate.socketFactory.createSocket().close()
++        assertEquals(1, old.created)
++        assertEquals(1, next.created)
++    }
++
++    @Test fun unchangedHealthDoesNotInterruptTheStream() {
++        val gate = VpnSocketGate()
++        val transport = VpnSocketGate.Transport(CountingFactory(), vpnDns { emptyList() })
++        gate.configure(true, transport)
++        gate.socketFactory.createSocket().use {
++            gate.configure(true, transport)
++            assertFalse(it.isClosed)
++        }
++    }
++}
+diff --git a/app/src/test/java/com/streamvault/app/vpn/WireGuardConfigPolicyTest.kt b/app/src/test/java/com/streamvault/app/vpn/WireGuardConfigPolicyTest.kt
+new file mode 100644
+index 00000000..1f242d18
+--- /dev/null
++++ b/app/src/test/java/com/streamvault/app/vpn/WireGuardConfigPolicyTest.kt
+@@ -0,0 +1,76 @@
++package com.streamvault.app.vpn
++
++import org.junit.Assert.*
++import org.junit.Test
++import com.wireguard.crypto.KeyPair
++
++class WireGuardConfigPolicyTest {
++    private fun profile(allowed: String = "0.0.0.0/0, ::/0", extra: String = "", dns: String = "DNS = 10.7.0.1") = """
++        [Interface]
++        PrivateKey = ${KeyPair().privateKey.toBase64()}
++        Address = 10.7.0.2/32
++        $dns
++        $extra
++        [Peer]
++        PublicKey = ${KeyPair().publicKey.toBase64()}
++        Endpoint = 192.0.2.1:51820
++        AllowedIPs = $allowed
++        PersistentKeepalive = 25
++    """.trimIndent()
++
++    @Test fun scopesTunnelToActualBuildPackageAndPreservesPeer() {
++        val source = profile(extra = "ExcludedApplications = com.streamvault.app.debug")
++        val config = WireGuardConfigPolicy.parse(source, "com.streamvault.app.debug")
++        assertEquals(setOf("com.streamvault.app.debug"), config.`interface`.includedApplications)
++        assertTrue(config.`interface`.excludedApplications.isEmpty())
++        assertEquals(25, config.peers.single().persistentKeepalive.get())
++        assertEquals("192.0.2.1", config.peers.single().endpoint.get().host)
++    }
++
++    @Test fun importedApplicationListsCannotRouteOtherApps() {
++        val config = WireGuardConfigPolicy.parse(profile(extra = "IncludedApplications = com.other.app"), "test.app")
++        assertEquals(setOf("test.app"), config.`interface`.includedApplications)
++    }
++
++    @Test fun acceptsIpv4OnlyFullTunnel() {
++        WireGuardConfigPolicy.parse(profile(allowed = "0.0.0.0/0"), "test.app")
++    }
++
++    @Test fun rejectsSplitTunnel() {
++        reject(profile(allowed = "10.0.0.0/8"), VpnProfileException.Reason.FULL_TUNNEL)
++    }
++
++    @Test fun rejectsIpv6InterfaceWithoutIpv6DefaultRoute() {
++        reject(profile(allowed = "0.0.0.0/0", extra = "Address = fd00::2/128"), VpnProfileException.Reason.FULL_TUNNEL)
++    }
++
++    @Test fun rejectsMissingDns() {
++        reject(profile(dns = ""), VpnProfileException.Reason.DNS)
++    }
++
++    @Test fun rejectsMultiplePeers() {
++        reject(profile() + "\n[Peer]\nPublicKey = ${KeyPair().publicKey.toBase64()}\nAllowedIPs = 10.0.0.0/8\n",
++            VpnProfileException.Reason.FULL_TUNNEL)
++    }
++
++    @Test fun rejectsOversizedInput() {
++        reject("x".repeat(WireGuardConfigPolicy.MAX_BYTES + 1), VpnProfileException.Reason.TOO_LARGE)
++    }
++
++    @Test fun parserFailureDoesNotExposeSecrets() {
++        val secret = "secret-do-not-log"
++        try {
++            WireGuardConfigPolicy.parse("[Interface]\nPrivateKey = $secret", "test.app")
++            fail("Expected invalid key")
++        } catch (error: VpnProfileException) {
++            assertEquals(VpnProfileException.Reason.INVALID, error.reason)
++            assertNull(error.message)
++            assertNull(error.cause)
++        }
++    }
++
++    private fun reject(text: String, reason: VpnProfileException.Reason) {
++        try { WireGuardConfigPolicy.parse(text, "test.app"); fail("Expected $reason") }
++        catch (error: VpnProfileException) { assertEquals(reason, error.reason) }
++    }
++}
+diff --git a/app/src/test/java/com/streamvault/app/vpn/WireGuardPairingServerTest.kt b/app/src/test/java/com/streamvault/app/vpn/WireGuardPairingServerTest.kt
+new file mode 100644
+index 00000000..da87e1d7
+--- /dev/null
++++ b/app/src/test/java/com/streamvault/app/vpn/WireGuardPairingServerTest.kt
+@@ -0,0 +1,141 @@
++package com.streamvault.app.vpn
++
++import java.net.HttpURLConnection
++import java.net.InetAddress
++import java.net.Socket
++import java.net.URL
++import java.net.URLEncoder
++import java.util.concurrent.CountDownLatch
++import java.util.concurrent.TimeUnit
++import java.util.concurrent.atomic.AtomicInteger
++import org.junit.Assert.*
++import org.junit.Test
++
++class WireGuardPairingServerTest {
++    private fun server(save: (String, String) -> Unit = { _, _ -> },
++        saved: () -> Unit = {}, expired: () -> Unit = {}, lifetime: Long = 300_000) =
++        WireGuardPairingServer(InetAddress.getByName("127.0.0.1"), save, saved, expired, lifetime)
++
++    private fun post(server: WireGuardPairingServer, name: String = "Proton", config: String = "example",
++        token: String = server.url.substringAfter("?t=")): Pair<Int, String> {
++        val body = listOf("token" to token, "name" to name, "config" to config).joinToString("&") {
++            "${it.first}=${URLEncoder.encode(it.second, "UTF-8")}" }.toByteArray(Charsets.UTF_8)
++        return request(server.url.substringBefore("/pair") + "/submit", body)
++    }
++
++    private fun request(url: String, body: ByteArray? = null): Pair<Int, String> {
++        val connection = URL(url).openConnection() as HttpURLConnection
++        connection.connectTimeout = 2_000
++        connection.readTimeout = 2_000
++        try {
++            if (body != null) {
++                connection.requestMethod = "POST"
++                connection.doOutput = true
++                connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8")
++                connection.outputStream.use { it.write(body) }
++            }
++            val code = connection.responseCode
++            return code to (if (code < 400) connection.inputStream else connection.errorStream)
++                .bufferedReader().use { it.readText() }
++        } finally { connection.disconnect() }
++    }
++
++    @Test fun phonePageOffersFileAndPasteWithoutExternalResources() {
++        server().use {
++            val (code, html) = request(it.url)
++            assertEquals(200, code)
++            assertTrue(html.contains("type=\"file\""))
++            assertTrue(html.contains("<textarea"))
++            assertTrue(html.contains("await selected.text()"))
++            assertFalse(html.contains("https://"))
++        }
++    }
++
++    @Test fun unicodeAndWireGuardKeyCharactersSurvivePhoneTransferExactly() {
++        var received: Pair<String, String>? = null
++        val done = CountDownLatch(1)
++        val config = "[Interface]\r\n# Grüße 📺 & + %\r\nPrivateKey = Ab+/==\n"
++        server(save = { name, text -> received = name to text }, saved = { done.countDown() }).use {
++            assertEquals(200, post(it, "Zürich 📺", config).first)
++            assertTrue(done.await(2, TimeUnit.SECONDS))
++            assertEquals("Zürich 📺" to config, received)
++        }
++    }
++
++    @Test fun rejectsMissingAndWrongSessionTokens() {
++        val count = AtomicInteger()
++        server(save = { _, _ -> count.incrementAndGet() }).use {
++            assertEquals(403, request(it.url.substringBefore('?')).first)
++            assertEquals(403, post(it, token = "wrong").first)
++            assertEquals(403, post(it, token = "").first)
++            assertEquals(0, count.get())
++        }
++    }
++
++    @Test fun invalidConfigCanBeCorrectedInSameSessionWithoutExposingSecret() {
++        server(save = { _, config -> if (config == "secret") throw IllegalArgumentException(config) }).use {
++            val response = post(it, config = "secret")
++            assertEquals(400, response.first)
++            assertFalse(response.second.contains("secret"))
++            assertEquals(200, post(it, config = "corrected").first)
++        }
++    }
++
++    @Test fun validatesUtf8ByteLimitAndNameBeforeSaving() {
++        val count = AtomicInteger()
++        server(save = { _, _ -> count.incrementAndGet() }).use {
++            assertEquals(400, post(it, name = "a".repeat(65)).first)
++            assertEquals(400, post(it, config = "ä".repeat(32_769)).first)
++            assertEquals(400, post(it, config = " ").first)
++            assertEquals(0, count.get())
++            assertEquals(200, post(it, config = "a".repeat(65_536)).first)
++            assertEquals(1, count.get())
++        }
++    }
++
++    @Test fun successInvalidatesSessionAndCannotSaveAgain() {
++        val count = AtomicInteger()
++        val done = CountDownLatch(1)
++        server(save = { _, _ -> count.incrementAndGet() }, saved = { done.countDown() }).use {
++            assertEquals(200, post(it).first)
++            assertTrue(done.await(2, TimeUnit.SECONDS))
++            val result = runCatching { post(it).first }.getOrNull()
++            assertTrue(result == null || result == 403)
++            assertEquals(1, count.get())
++        }
++    }
++
++    @Test fun cancellationClosesAnIncompleteClientAndNeverImports() {
++        val count = AtomicInteger()
++        val server = server(save = { _, _ -> count.incrementAndGet() })
++        val url = URL(server.url)
++        Socket(url.host, url.port).use { socket ->
++            socket.getOutputStream().write("POST /submit HTTP/1.1\r\n".toByteArray())
++            server.close()
++            assertTrue(runCatching { post(server) }.isFailure)
++            assertEquals(0, count.get())
++        }
++    }
++
++    @Test fun expiryStopsServerWithoutSaving() {
++        val expired = CountDownLatch(1)
++        val count = AtomicInteger()
++        server(save = { _, _ -> count.incrementAndGet() }, expired = { expired.countDown() }, lifetime = 50).use {
++            assertTrue(expired.await(2, TimeUnit.SECONDS))
++            assertTrue(runCatching { post(it) }.isFailure)
++            assertEquals(0, count.get())
++        }
++    }
++
++    @Test fun oversizedRequestIsRejectedBeforeReadingBody() {
++        server().use { server ->
++            val url = URL(server.url)
++            Socket(url.host, url.port).use {
++                it.soTimeout = 2_000
++                it.getOutputStream().write(("POST /submit HTTP/1.1\r\nHost: localhost\r\n" +
++                    "Content-Type: application/x-www-form-urlencoded\r\nContent-Length: 600001\r\n\r\n").toByteArray())
++                assertTrue(it.getInputStream().bufferedReader().readLine().contains("400"))
++            }
++        }
++    }
++}
+diff --git a/core/ui/src/main/java/com/streamvault/core/ui/components/dialogs/PremiumDialog.kt b/core/ui/src/main/java/com/streamvault/core/ui/components/dialogs/PremiumDialog.kt
+index 623bb739..3fa78cee 100644
+--- a/core/ui/src/main/java/com/streamvault/core/ui/components/dialogs/PremiumDialog.kt
++++ b/core/ui/src/main/java/com/streamvault/core/ui/components/dialogs/PremiumDialog.kt
+@@ -88,6 +88,7 @@ fun PremiumDialog(
+     heightFraction: Float? = 0.88f,
+     bodyHeightFraction: Float = 0.5f,
+     bodyScrollHint: String? = null,
++    scrollOnDirectionalKey: Boolean = true,
+     initialBodyFocusRequester: androidx.compose.ui.focus.FocusRequester? = null,
+     content: @Composable ColumnScope.() -> Unit,
+     footer: @Composable RowScope.() -> Unit = {}
+@@ -155,6 +156,7 @@ fun PremiumDialog(
+                             PremiumDialogScrollableBody(
+                                 maxHeight = maxDialogBodyHeight,
+                                 scrollHint = bodyScrollHint,
++                                scrollOnDirectionalKey = scrollOnDirectionalKey,
+                                 initialFocusRequester = initialBodyFocusRequester,
+                                 content = content,
+                             )
+@@ -222,6 +224,7 @@ fun PremiumDialog(
+                             PremiumDialogScrollableBody(
+                                 maxHeight = maxDialogBodyHeight,
+                                 scrollHint = bodyScrollHint,
++                                scrollOnDirectionalKey = scrollOnDirectionalKey,
+                                 initialFocusRequester = initialBodyFocusRequester,
+                                 content = content,
+                             )
+@@ -243,6 +246,7 @@ fun PremiumDialog(
+ private fun ColumnScope.PremiumDialogScrollableBody(
+     maxHeight: androidx.compose.ui.unit.Dp,
+     scrollHint: String?,
++    scrollOnDirectionalKey: Boolean,
+     initialFocusRequester: androidx.compose.ui.focus.FocusRequester?,
+     content: @Composable ColumnScope.() -> Unit,
+ ) {
+@@ -263,7 +267,7 @@ private fun ColumnScope.PremiumDialogScrollableBody(
+             .fillMaxWidth()
+             .focusGroup()
+             .onPreviewKeyEvent { event ->
+-                if (event.nativeKeyEvent.action != AndroidKeyEvent.ACTION_DOWN) {
++                if (!scrollOnDirectionalKey || event.nativeKeyEvent.action != AndroidKeyEvent.ACTION_DOWN) {
+                     return@onPreviewKeyEvent false
+                 }
+                 val delta = when (event.nativeKeyEvent.keyCode) {
+diff --git a/core/ui/src/main/java/com/streamvault/core/ui/components/shell/AppShellVisuals.kt b/core/ui/src/main/java/com/streamvault/core/ui/components/shell/AppShellVisuals.kt
+index b2750bf6..0885ea4c 100644
+--- a/core/ui/src/main/java/com/streamvault/core/ui/components/shell/AppShellVisuals.kt
++++ b/core/ui/src/main/java/com/streamvault/core/ui/components/shell/AppShellVisuals.kt
+@@ -35,6 +35,7 @@ import androidx.compose.material.icons.Icons
+ import androidx.compose.material.icons.automirrored.filled.ExitToApp
+ import androidx.compose.material.icons.filled.Info
+ import androidx.compose.runtime.Composable
++import androidx.compose.runtime.staticCompositionLocalOf
+ import androidx.compose.runtime.getValue
+ import androidx.compose.runtime.mutableStateOf
+ import androidx.compose.runtime.remember
+@@ -100,6 +101,8 @@ data class UiDestination(
+     val selectedIcon: ImageVector = icon
+ )
+ 
++val LocalAppTopBarActions = staticCompositionLocalOf<(@Composable RowScope.() -> Unit)?> { null }
++
+ @Composable
+ fun CoreAppScreenScaffold(
+     currentDestinationId: String,
+@@ -117,6 +120,15 @@ fun CoreAppScreenScaffold(
+     contentPadding: PaddingValues = PaddingValues(),
+     content: @Composable ColumnScope.() -> Unit
+ ) {
++    val appActions = LocalAppTopBarActions.current
++    val actions: (@Composable RowScope.() -> Unit)? = if (appActions != null || topBarActions != null) {
++        {
++            appActions?.invoke(this)
++            topBarActions?.invoke(this)
++        }
++    } else {
++        null
++    }
+     val spacing = LocalAppSpacing.current
+ 
+     Box(
+@@ -137,7 +149,7 @@ fun CoreAppScreenScaffold(
+                     header?.invoke(this)
+                     Column(Modifier.weight(1f).fillMaxWidth().padding(contentPadding), content = content)
+                 }
+-                PortraitNavigation(currentDestinationId, destinations, onDestinationSelected, topBarActions)
++                PortraitNavigation(currentDestinationId, destinations, onDestinationSelected, actions)
+             }
+         } else if (navigationChrome == NavigationChrome.Rail) {
+             Row(modifier = Modifier.fillMaxSize()) {
+@@ -195,7 +207,7 @@ fun CoreAppScreenScaffold(
+                         currentDestinationId = currentDestinationId,
+                         destinations = destinations,
+                         onDestinationSelected = onDestinationSelected,
+-                        actions = topBarActions,
++                        actions = actions,
+                         modifier = Modifier.fillMaxWidth()
+                     )
+                     Spacer(modifier = Modifier.height(10.dp))
+diff --git a/data/src/main/java/com/streamvault/data/manager/GoogleDriveBackupSyncManager.kt b/data/src/main/java/com/streamvault/data/manager/GoogleDriveBackupSyncManager.kt
+index dd2bde92..00cc32a8 100644
+--- a/data/src/main/java/com/streamvault/data/manager/GoogleDriveBackupSyncManager.kt
++++ b/data/src/main/java/com/streamvault/data/manager/GoogleDriveBackupSyncManager.kt
+@@ -53,11 +53,12 @@ import java.util.TimeZone
+ import java.util.UUID
+ import java.util.concurrent.TimeUnit
+ import javax.inject.Inject
++import javax.inject.Named
+ import javax.inject.Singleton
+ 
+ private const val GOOGLE_DRIVE_API_BASE_URL = "https://www.googleapis.com"
+ 
+-private fun buildDefaultDriveHttpClient(): OkHttpClient = OkHttpClient.Builder()
++private fun buildDriveHttpClient(transport: OkHttpClient): OkHttpClient = transport.newBuilder()
+     .connectTimeout(20, TimeUnit.SECONDS)
+     .readTimeout(60, TimeUnit.SECONDS)
+     .writeTimeout(60, TimeUnit.SECONDS)
+@@ -104,10 +105,11 @@ class GoogleDriveBackupSyncManager private constructor(
+     constructor(
+         @ApplicationContext context: Context,
+         backupManager: BackupManager,
++        @Named("vpnTransport") transport: OkHttpClient,
+     ) : this(
+         context = context,
+         backupManager = backupManager,
+-        httpClient = buildDefaultDriveHttpClient(),
++        httpClient = buildDriveHttpClient(transport),
+         driveApiBaseUrl = GOOGLE_DRIVE_API_BASE_URL,
+         fixedAccessToken = null,
+         authClientFactory = { buildDefaultGoogleDriveClient(context) },
+diff --git a/data/src/main/java/com/streamvault/data/remote/stalker/OkHttpStalkerApiService.kt b/data/src/main/java/com/streamvault/data/remote/stalker/OkHttpStalkerApiService.kt
+index 14a95778..54e1a590 100644
+--- a/data/src/main/java/com/streamvault/data/remote/stalker/OkHttpStalkerApiService.kt
++++ b/data/src/main/java/com/streamvault/data/remote/stalker/OkHttpStalkerApiService.kt
+@@ -2928,7 +2928,7 @@ class OkHttpStalkerApiService @Inject constructor(
+                 .cookieJar(CookieJar.NO_COOKIES)
+                 .apply {
+                     if (proxy != null) {
+-                        proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress(proxy.host, proxy.port)))
++                        proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress.createUnresolved(proxy.host, proxy.port)))
+                     }
+                 }
+                 .build()
+diff --git a/data/src/main/java/com/streamvault/data/remote/stalker/StalkerTransport.kt b/data/src/main/java/com/streamvault/data/remote/stalker/StalkerTransport.kt
+index 2c6b1451..ba88cc51 100644
+--- a/data/src/main/java/com/streamvault/data/remote/stalker/StalkerTransport.kt
++++ b/data/src/main/java/com/streamvault/data/remote/stalker/StalkerTransport.kt
+@@ -7,7 +7,6 @@ import com.streamvault.domain.model.StalkerTransportMode
+ import com.streamvault.domain.model.StalkerTransportOrigin
+ import java.net.InetSocketAddress
+ import java.io.IOException
+-import java.net.Socket
+ import java.security.MessageDigest
+ import java.security.SecureRandom
+ import java.security.cert.CertificateException
+@@ -183,8 +182,10 @@ class StalkerTransportFactory(
+                 val sslContext = SSLContext.getInstance("TLS").apply {
+                     init(null, arrayOf(captureManager), SecureRandom())
+                 }
+-                Socket().use { raw ->
+-                    raw.connect(InetSocketAddress(origin.host, origin.port), PROBE_TIMEOUT_MILLIS)
++                val address = strictClient.dns.lookup(origin.host).firstOrNull()
++                    ?: return@runCatching null
++                strictClient.socketFactory.createSocket().use { raw ->
++                    raw.connect(InetSocketAddress(address, origin.port), PROBE_TIMEOUT_MILLIS)
+                     raw.soTimeout = PROBE_TIMEOUT_MILLIS
+                     (sslContext.socketFactory.createSocket(
+                         raw,
+diff --git a/data/src/main/java/com/streamvault/data/stremio/account/StremioStreamingServiceImpl.kt b/data/src/main/java/com/streamvault/data/stremio/account/StremioStreamingServiceImpl.kt
+index f39b6b7e..2adaf105 100644
+--- a/data/src/main/java/com/streamvault/data/stremio/account/StremioStreamingServiceImpl.kt
++++ b/data/src/main/java/com/streamvault/data/stremio/account/StremioStreamingServiceImpl.kt
+@@ -17,11 +17,18 @@ import kotlinx.coroutines.withContext
+ import okhttp3.OkHttpClient
+ import okhttp3.Request
+ 
+-class StremioStreamingServiceImpl(private val store:StremioAccountStore):StremioStreamingService {
++class StremioStreamingServiceImpl(
++    private val store: StremioAccountStore,
++    transport: OkHttpClient = OkHttpClient(),
++) : StremioStreamingService {
+     private val mutableState=MutableStateFlow(StremioStreamingServiceState())
+     override val state=mutableState.asStateFlow()
+     private val mutex=Mutex()
+-    private val client=OkHttpClient.Builder().callTimeout(10,TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).build()
++    private val client = transport.newBuilder()
++        .callTimeout(10, TimeUnit.SECONDS)
++        .followRedirects(false)
++        .followSslRedirects(false)
++        .build()
+     override suspend fun load()=withContext(Dispatchers.IO) { mutex.withLock {
+         if(!state.value.ready) try { mutableState.value=StremioStreamingServiceState(ready=true,url=store.read().text("url"))
+         } catch(_:Exception) { mutableState.value=StremioStreamingServiceState(ready=true,error=true) }
+diff --git a/data/src/main/java/com/streamvault/data/webhook/PlaybackWebhookSender.kt b/data/src/main/java/com/streamvault/data/webhook/PlaybackWebhookSender.kt
+index 9d52c570..9e897a86 100644
+--- a/data/src/main/java/com/streamvault/data/webhook/PlaybackWebhookSender.kt
++++ b/data/src/main/java/com/streamvault/data/webhook/PlaybackWebhookSender.kt
+@@ -51,8 +51,11 @@ data class WebhookDeliveryResult(
+ )
+ 
+ /** One attempt only. Queue ownership, ordering, expiry and retries belong to the dispatcher. */
+-class PlaybackWebhookSender(private val now: () -> Instant = { Instant.now() }) {
+-    private val client = OkHttpClient.Builder()
++class PlaybackWebhookSender(
++    transport: OkHttpClient = OkHttpClient(),
++    private val now: () -> Instant = { Instant.now() },
++) {
++    private val client = transport.newBuilder()
+         .connectTimeout(5, TimeUnit.SECONDS)
+         .readTimeout(5, TimeUnit.SECONDS)
+         .writeTimeout(5, TimeUnit.SECONDS)
+diff --git a/data/src/main/java/com/streamvault/data/webhook/PlaybackWebhookService.kt b/data/src/main/java/com/streamvault/data/webhook/PlaybackWebhookService.kt
+index 8f9fa856..e72935d8 100644
+--- a/data/src/main/java/com/streamvault/data/webhook/PlaybackWebhookService.kt
++++ b/data/src/main/java/com/streamvault/data/webhook/PlaybackWebhookService.kt
+@@ -8,6 +8,8 @@ import java.io.File
+ import java.time.Instant
+ import java.util.UUID
+ import javax.inject.Inject
++import javax.inject.Named
++import okhttp3.OkHttpClient
+ import javax.inject.Singleton
+ import kotlinx.coroutines.*
+ import kotlinx.coroutines.channels.Channel
+@@ -21,10 +23,11 @@ import kotlin.random.Random
+ class PlaybackWebhookService @Inject constructor(
+     @ApplicationContext context: Context,
+     crypto: CredentialCrypto,
++    @Named("vpnTransport") client: OkHttpClient = OkHttpClient(),
+ ) : PlaybackWebhooks {
+     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+     private val store = PlaybackWebhookStore(File(context.noBackupFilesDir, "playback_webhooks"), crypto)
+-    private val sender = PlaybackWebhookSender()
++    private val sender = PlaybackWebhookSender(client)
+     private val gate = Mutex()
+     private val ready = CompletableDeferred<Unit>()
+     private val mutableConfiguration = MutableStateFlow(PlaybackWebhookConfiguration())
+diff --git a/docs/VPN_CONTROLS.md b/docs/VPN_CONTROLS.md
+new file mode 100644
+index 00000000..bd1e76be
+--- /dev/null
++++ b/docs/VPN_CONTROLS.md
+@@ -0,0 +1,72 @@
++# VPN controls (2026-09-14)
++
++## Fire TV controls
++
++Open Settings → Privacy → WireGuard VPN. Each switch is one D-pad focus target;
++press OK to toggle it. Focusing a row never toggles it or opens a keyboard.
++All three settings default to off and persist on this device.
++
++- **VPN bei App-Start verbinden**: use the selected startup profile whenever the
++  main activity returns to the foreground and no tunnel is running. Choose a
++  profile with **Für Autostart auswählen**. Manual connection also selects it.
++  Removing that profile disables automatic startup.
++- **VPN Kill-Switch**: block the shared IPTV/API, playback, image, recording and
++  download HTTP client until the app VPN is confirmed. This also covers startup,
++  denied VPN permission, connection failure, manual disconnect and tunnel loss.
++  Buffered/local content is not itself a provider connection.
++- **VPN-Status im App-Menü**: a button in the top bar says **VPN Verbunden** or
++  **VPN Getrennt** and opens the existing VPN menu directly.
++
++A bottom-right card shows three actual setup stages: load the profile, establish
++the tunnel, confirm the server handshake. The progress bar is stage progress,
++not an invented estimate of network duration. A failed start shows a warning.
++Android VPN consent still has to be granted manually once; autostart reports
++missing permission and does not silently bypass the system dialog.
++
++## Connection and kill-switch behavior
++
++The connection monitor sends a small DNS query through the VPN to the DNS server
++already configured in the profile. No third-party test URL or account is used.
++An initial WireGuard handshake confirms setup. A DNS reply or a newer handshake
++renews a 30-second liveness window. Detection of a remote outage is therefore
++not instantaneous. The native tunnel continues to contain packets while the
++remote endpoint is unreachable; the app never deliberately falls back to direct
++HTTP while the kill switch is enabled.
++
++The protected HTTP client rejects requests and DNS when disconnected, binds
++new sockets and DNS explicitly to the confirmed VPN Network, and closes tracked
++sockets when protection or VPN transport changes. Existing connection-pool and
++stream sockets cannot be reused as direct connections after enabling protection.
++Player DNS sorting delegates to this resolver. External subtitle HTTP uses the
++same client. The player observes protection changes and stops disallowed playback.
++
++The switch applies to StreamVault's own provider network stack, not to Android
++globally or other applications. New external-player, Cast and external-plugin requests are blocked
++while it is enabled. Stop playback already running in another app/device there.
++Non-HTTP remote playback transports are rejected with protection enabled because
++they cannot use the protected HTTP stack. Existing QR import remains accessible
++on the local network when the VPN is disconnected.
++
++API reference: [Android Network socket factories and DNS](https://developer.android.com/reference/android/net/Network).
++
++## Validation
++
++GitHub Actions runs the existing 18 VPN tests plus 11 regressions for fail-closed
++cold start, DNS/socket blocking, closing existing direct sockets, loss/reconnect,
++unchanged healthy connections, handshake/liveness timeout and recovery. It also
++runs the phone-page JavaScript check and builds an APK.
++
++The previous QR/import version was confirmed working on Fire TV by the user.
++These new controls still need real-device validation:
++1. Select profile, enable autostart, leave/reopen the app: progress → connected.
++2. Invalid server/permission denied: warning; with kill switch on no provider request.
++3. Play HTTP IPTV, enable protection, disconnect VPN and interrupt the remote server:
++   no direct provider traffic; status and warning update; retry after reconnect.
++4. Verify provider-side source IP and DNS with a controlled endpoint during startup,
++   disconnect/reconnect and Android revocation, including downloads/recordings.
++5. Test toggles and top-bar shortcut with the Fire TV remote and many profile rows.
++
++No local execution environment was available for this revision; build/test results
++come from GitHub Actions. No real-device leak or throughput test is claimed.
++The repository's graphify command could not run because no shell environment or
++installed graphify executable was available.
+diff --git a/docs/WIREGUARD.md b/docs/WIREGUARD.md
+new file mode 100644
+index 00000000..11c9e798
+--- /dev/null
++++ b/docs/WIREGUARD.md
+@@ -0,0 +1,127 @@
++# WireGuard-Erweiterung
++
++Based on StreamVault. Originalentwickler: **David Nashash (Davidona)**.
++
++- Originalprojekt: https://github.com/Davidona/StreamVault-IPTV
++- Unterstützung des Originalentwicklers: https://ko-fi.com/davidona
++- Upstream-Version: [StreamVault v1.2.6](https://github.com/Davidona/StreamVault-IPTV/releases/tag/v1.2.6) (`6279060d20c8d1305f05da2957a5605885e4ccbf`).
++- Die unveränderte Projektlizenz in `LICENSE` gilt auch für diese Erweiterung.
++- WireGuard Tunnel Library `com.wireguard.android:tunnel:1.0.20260102`:
++  https://git.zx2c4.com/wireguard-android/about/ (Apache-2.0).
++
++Die neuen Schalter für Autostart, Kill-Switch und VPN-Menüstatus sind in
++[VPN_CONTROLS.md](VPN_CONTROLS.md) beschrieben.
++
++## Benutzung auf Fire TV / Android TV
++
++1. Einstellungen → Privatsphäre / Privacy → **WireGuard VPN** öffnen.
++2. **Profil hinzufügen** wählen und den QR-Code mit dem Handy scannen, wie beim
++   Xtream-Setup. Handy und TV müssen im selben WLAN/LAN sein. Auf der Handyseite
++   einen Namen eingeben und entweder die Proton-/WireGuard-`.conf`-Datei auswählen
++   oder den vollständigen Konfigurationstext einfügen. **An TV senden** drücken.
++   Nach erfolgreichem Speichern schließt sich der QR-Dialog auf dem TV.
++   Alternativ kann **Datei auf diesem Gerät auswählen** verwendet werden, wenn
++   dort eine Dateiauswahl verfügbar ist; das Profil heißt dann „WireGuard“.
++   Auf dem TV gibt es keine Texteingabefelder mehr: Fokus öffnet keine Tastatur.
++   Vor einem weiteren Import eine aktive VPN-Verbindung trennen.
++3. Beim Profil **Verbinden** wählen und die Android-VPN-Freigabe bestätigen.
++4. Nach **Tunnel aktiv** wie gewohnt in StreamVault navigieren und abspielen.
++   Der zusätzlich angezeigte Handshake bestätigt, dass der VPN-Server geantwortet
++   hat. Ohne Datenverkehr muss noch kein Handshake vorliegen; es wird kein
++   fremder Prüfdienst kontaktiert. Die Handshake-Anzeige ist keine fortlaufende
++   Internet-Erreichbarkeitsgarantie.
++5. Unter WireGuard VPN oder über die Benachrichtigung **Trennen** wählen.
++   Vor einem Profilwechsel zuerst trennen. Profile lassen sich nach Bestätigung
++   löschen. Maximal 32 Profile, je 64 KiB, Namen bis 64 Zeichen.
++
++Es ist keine separate WireGuard-App und kein Root-Zugriff nötig. Es wird ein
++bereits vorhandenes, gültiges VPN-Profil benötigt; diese App stellt keinen
++VPN-Server bereit. Fire OS muss Androids `VpnService` und Freigabedialog anbieten.
++
++## QR-Import und Fernbedienung
++
++- Der QR-Code öffnet eine lokale Handyseite mit Texteingabe und Dateiauswahl.
++  Kein Cloud-Dienst; wie beim ursprünglichen Xtream-Setup erfolgt die Übertragung
++  über HTTP im lokalen Netz. Nur in einem vertrauenswürdigen WLAN verwenden.
++- Der Server bindet nur an eine physische WLAN-/Ethernet-IPv4-Adresse, nicht an
++  eine VPN-Schnittstelle. Gastnetze mit Geräteisolation verhindern die Verbindung.
++- Zufälliges Sitzungstoken, fünf Minuten Gültigkeit, nur ein erfolgreicher Import.
++  Abbrechen, Verlassen des Dialogs und ein neuer QR-Code schließen die alte Sitzung.
++  Ungültige Konfigurationen können innerhalb derselben Sitzung korrigiert werden.
++- Dateien werden am Handy als Text gelesen und über denselben Importweg validiert.
++  Keine Konfiguration in URL, Logs, HTML-Antworten oder GitHub; Speicherung auf
++  dem TV weiterhin mit Android Keystore verschlüsselt.
++- VPN-Dialoge werden einzeln geöffnet. Hoch/Runter bewegt den Fokus; der Scrollbereich
++  folgt dem fokussierten Element ohne den zusätzlichen 240-Pixel-Sprung. Die
++  vorhandenen Dialoge außerhalb der VPN-Funktion behalten ihr Verhalten.
++
++## Routing und Lebensdauer
++
++- Nur die tatsächlich installierte StreamVault-Paket-ID wird als erlaubte App
++  eingetragen, einschließlich der `.debug`-Variante. Importierte Listen anderer
++  Apps werden ersetzt. Der Player und die Provider-Implementierungen bleiben
++  unverändert.
++- Ein Peer, ein Endpunkt, eine Interface-Adresse, mindestens eine numerische
++  DNS-Serveradresse und eine IPv4-Standardroute (`0.0.0.0/0`) sind erforderlich.
++  Wenn IPv6-Adressen, IPv6-DNS oder IPv6-Routen konfiguriert sind, ist zusätzlich
++  `::/0` erforderlich. Reine IPv4-Profile werden akzeptiert; die WireGuard-
++  Bibliothek lässt dabei die unkonfigurierte IPv6-Familie nicht am Tunnel vorbei.
++  Teilnetz- und Mehrfach-Peer-Profile werden mit einer Erklärung abgelehnt.
++- Die Konfiguration wird mit dem offiziellen Parser validiert. Desktop-
++  Erweiterungen wie `PostUp`/`PostDown` werden nicht ausgeführt.
++- Der VPN-Dienst läuft während der Nutzung und im Hintergrund weiter, auch für
++  Downloads und Aufnahmen innerhalb der App. Das Schließen eines Dialogs oder
++  der Wechsel zum Player trennt ihn nicht.
++- Mit aktiviertem Autostart wird beim nächsten Öffnen der App das gewählte Profil
++  verbunden. Nach Widerruf muss die Android-Freigabe erneut manuell bestätigt werden.
++  Kein automatischer Boot-Start und kein Android-Always-on. Der neue App-Kill-Switch
++  hält die internen Provider-HTTP-Zugriffe auch nach dem Trennen gesperrt; ausgeschaltet
++  gilt wieder die normale Netzwerkverbindung. Vor einem Streamstart verbinden; bestehende
++  Streams bei Bedarf nach dem Verbinden neu starten.
++- Android verwaltet jeweils ein VPN. Die Systemfreigabe kann ein anderes VPN
++  ersetzen. Andere Apps, externe Player, Plugin-Prozesse in anderen Apps und
++  Cast-Empfänger sind nicht Bestandteil dieses App-Tunnels. Der Kill-Switch
++  sperrt außerdem Torrent-Wiedergabe und Torrent-Downloads der App. Die
++  native Torrent-Engine verwendet nicht die geschützten HTTP-Sockets.
++- Profile sind mit AES-256-GCM und einem Schlüssel aus dem Android Keystore
++  verschlüsselt in `noBackupFilesDir` gespeichert. Sie werden weder vom
++  bestehenden StreamVault-Backup noch vom Android-Backup exportiert. Der
++  Konfigurationstext wird nicht in `savedInstanceState` abgelegt. Fehlermeldungen
++  übernehmen weder Schlüssel noch Rohtexte aus Parser-Ausnahmen.
++
++## Bauen und installieren
++
++Voraussetzungen wie beim Original: JDK 17, Android SDK 36, Gradle Wrapper und
++Zugriff auf Google Maven / Maven Central. Keine eigenen Signierschlüssel oder
++Provider-Zugangsdaten sind in der Erweiterung enthalten.
++
++```sh
++./gradlew :app:testDebugUnitTest --tests 'com.streamvault.app.vpn.*'
++./gradlew :app:assembleDebug
++adb install -r app/build/outputs/apk/debug/app-debug.apk
++```
++
++Die Debug-App verwendet die vorhandene Paket-ID `com.streamvault.app.debug` und
++kann neben der offiziellen Release-App installiert werden. Ein Update über
++eine vorhandene Installation benötigt denselben Signaturschlüssel. Die
++Update-Suche der App verwendet die GitHub Releases von `MerlinManch/StreamVault-VPN`.
++Debug-APKs aus GitHub Actions sind über den WireGuard-Buildworkflow erhältlich.
++
++## Geräteprüfung vor Freigabe
++
++Die folgenden Prüfungen benötigen ein echtes Fire-TV-/Android-TV-Gerät und ein
++funktionierendes Testprofil; sie werden nicht durch einen erfolgreichen Build
++oder die Parser-Tests ersetzt:
++
++- Handy-QR: Datei und Text, gleicher WLAN-Zugang, falsches Profil korrigieren,
++  Sitzung erneuern/ablaufen lassen und Abbruch testen.
++- D-Pad ohne Tastatur-Popups; Profil-Liste mit mehreren Einträgen bis zum Ende
++  und zurück navigieren; Zurück, Abbruch, Löschbestätigung prüfen.
++- Freigabe bestätigen/ablehnen, erneut verbinden, Profilwechsel, VPN widerrufen.
++- Server-Handshake und IPTV-Wiedergabe einschließlich EPG und Downloads prüfen.
++- IPv4/IPv6 und DNS über einen kontrollierten VPN-Server prüfen; andere Apps
++  müssen weiter die normale Verbindung verwenden.
++- Server/Internet unterbrechen und wiederherstellen; Hintergrundwiedergabe,
++  Geräteneustart und Prozessbeendigung prüfen. Die App darf nach einem Neustart
++  keinen aktiven Tunnel vortäuschen.
++- Native Bibliotheken für `armeabi-v7a` und `arm64-v8a` auf den Zielgeräten prüfen.
+diff --git a/docs/WIREGUARD_VALIDATION.md b/docs/WIREGUARD_VALIDATION.md
+new file mode 100644
+index 00000000..2704df0c
+--- /dev/null
++++ b/docs/WIREGUARD_VALIDATION.md
+@@ -0,0 +1,59 @@
++# WireGuard validation
++
++## VPN controls — 2026-09-14
++
++- The user confirmed the preceding QR/import version working on their Fire TV.
++- Added persistent autostart, kill-switch and top-menu status switches.
++- Verified source commit: `9930b5e1fff83a5d3c5e1d92e5b280b17121f5ea`.
++- [GitHub Actions run 34860670485](https://github.com/MerlinManch/StreamVault-VPN/actions/runs/34860670485) completed successfully.
++- APK assembly and all 29 targeted VPN tests passed (18 existing tests plus 11 new regression tests).
++- The phone-page JavaScript handler checks also passed.
++- Artifacts: `StreamVault-VPN-debug` and `WireGuard-test-reports`.
++- New controls, VPN-bound socket/DNS behavior and leak prevention still require real Fire TV testing with a controlled provider/VPN endpoint.
++- No local execution environment was available during this revision. See [VPN_CONTROLS.md](VPN_CONTROLS.md) for behavior and the device checklist.
++
++---
++
++Date: 2026-09-13
++
++Code imported in commit `fa687168f3d012fc3ef2eb5050f7c7f5c7643c14`, based on upstream `f86d4aeef21de4524a986c4ae87ac5f58ac42d25`.
++
++## QR import and TV input fix (2026-09-13)
++
++- Replaced TV text fields with the Xtream-style phone QR flow: paste text or
++  select a `.conf` file on the phone. Local file selection remains optional.
++- VPN dialogs no longer stack or apply the manual 240-pixel D-pad scroll jump.
++  Focus navigation and scroll-to-focused-control handle the VPN dialog body.
++- Local `assembleDebug` and targeted VPN tests succeeded: **18 tests**, no failures
++  (9 configuration policy tests and 9 real loopback HTTP server tests).
++- Server tests cover exact UTF-8 and key-character transfer, tokens, invalid
++  configuration retry, byte limits, single-use success, cancellation and expiry.
++- `node scripts/test-wireguard-phone.cjs` passes: actual shipped JavaScript handlers
++  exercise file selection, paste, rejection/retry, clearing after success and limits.
++  This uses DOM adapters, not a real mobile browser.
++- A browser rendering test could not run: Chromium was unavailable and its download
++  did not complete. No browser rendering or real Fire TV remote-control test is claimed.
++- `graphify update .` could not run because graphify is not installed here.
++
++The older checks below describe the initial version. The real-device checks still
++apply to this fix, including importing a genuine Proton profile and connecting.
++
++## Initial version: completed locally
++
++- Android Gradle build: `:app:assembleDebug` — successful.
++- Targeted Gradle tests: `:app:testDebugUnitTest --tests 'com.streamvault.app.vpn.*'` — 9 tests, 0 failures, 0 errors, 0 skipped.
++- APK signature verification with Android `apksigner` — valid APK Signature Scheme v2 signature.
++- Packaged WireGuard native libraries verified for `armeabi-v7a` and `arm64-v8a`.
++- Manifest and English/German resources parsed; all 32 new resource keys match.
++- WireGuard patch checked against the pinned upstream source before import.
++- Application source and resources in GitHub checked against the local build using Git blob hashes. The upstream's ignored historical build logs are not part of the imported source commit.
++
++The build emits upstream compiler/deprecation and D8 Kotlin-metadata warnings, but completes successfully. Existing player/provider source and upstream dependency versions were preserved.
++
++## Still requires a device
++
++Actual Fire TV / Android TV installation, remote-control navigation, VPN consent, server handshake, IP/DNS routing, reconnect/revoke behavior and IPTV playback through a real VPN have not been exercised here. No user WireGuard credentials or IPTV provider credentials were supplied. See the device checklist in [WIREGUARD.md](WIREGUARD.md).
++
++This is a debug test build, not a device-validated production release. Release signing and release shrinking were not tested.
++
++The GitHub Actions run provides the independently built APK and its own test report: [StreamVault VPN APK builds](https://github.com/MerlinManch/StreamVault-VPN/actions/workflows/wireguard.yml).
+diff --git a/feature/playback/src/main/java/com/streamvault/feature/playback/cast/CastManager.kt b/feature/playback/src/main/java/com/streamvault/feature/playback/cast/CastManager.kt
+index 4a912343..90d0abda 100644
+--- a/feature/playback/src/main/java/com/streamvault/feature/playback/cast/CastManager.kt
++++ b/feature/playback/src/main/java/com/streamvault/feature/playback/cast/CastManager.kt
+@@ -22,15 +22,19 @@ import kotlinx.coroutines.flow.SharedFlow
+ import kotlinx.coroutines.flow.StateFlow
+ import kotlinx.coroutines.flow.asSharedFlow
+ import kotlinx.coroutines.flow.asStateFlow
++import com.streamvault.player.playback.PlaybackNetworkPolicy
+ import javax.inject.Inject
++import okhttp3.OkHttpClient
+ import javax.inject.Singleton
+ 
+ @Singleton
+ class CastManager @Inject constructor(
+     @ApplicationContext private val context: Context,
+-    private val castUrlRewriter: CastUrlRewriter
++    private val castUrlRewriter: CastUrlRewriter,
++    okHttpClient: OkHttpClient
+ ) {
+ 
++    private val playbackNetworkPolicies = okHttpClient.interceptors.filterIsInstance<PlaybackNetworkPolicy>()
+     private val _connectionState = MutableStateFlow(CastConnectionState.UNAVAILABLE)
+     val connectionState: StateFlow<CastConnectionState> = _connectionState.asStateFlow()
+ 
+@@ -118,6 +122,7 @@ class CastManager @Inject constructor(
+         .build()
+ 
+     suspend fun startCasting(request: CastMediaRequest): CastStartResult {
++        if (playbackNetworkPolicies.any(PlaybackNetworkPolicy::blocksExternalPlayback)) return CastStartResult.UNAVAILABLE
+         ensureInitialized()
+         val resolvedContext = castContext ?: return CastStartResult.UNAVAILABLE
+         if (!isRequestSupported(request)) {
+@@ -168,6 +173,7 @@ class CastManager @Inject constructor(
+     }
+ 
+     private fun loadMedia(session: CastSession, request: CastMediaRequest): Boolean {
++        if (playbackNetworkPolicies.any(PlaybackNetworkPolicy::blocksExternalPlayback)) return false
+         val remoteMediaClient = session.remoteMediaClient ?: run {
+             _playbackEvents.tryEmit(CastPlaybackEvent.ReceiverUnavailable(request.title))
+             return false
+diff --git a/feature/playback/src/main/java/com/streamvault/feature/playback/player/PlayerPreparationCoordinator.kt b/feature/playback/src/main/java/com/streamvault/feature/playback/player/PlayerPreparationCoordinator.kt
+index 80bbcb27..db6036f4 100644
+--- a/feature/playback/src/main/java/com/streamvault/feature/playback/player/PlayerPreparationCoordinator.kt
++++ b/feature/playback/src/main/java/com/streamvault/feature/playback/player/PlayerPreparationCoordinator.kt
+@@ -274,6 +274,6 @@ class PlayerPreparationCoordinator @Inject constructor(
+     private fun StreamInfo.httpProxy(): Proxy? {
+         val host = proxyHost.trim().takeIf { it.isNotBlank() } ?: return null
+         val port = proxyPort ?: return null
+-        return Proxy(Proxy.Type.HTTP, InetSocketAddress(host, port))
++        return Proxy(Proxy.Type.HTTP, InetSocketAddress.createUnresolved(host, port))
+     }
+ }
+diff --git a/feature/settings/src/main/java/com/streamvault/feature/settings/presentation/SettingsContentPane.kt b/feature/settings/src/main/java/com/streamvault/feature/settings/presentation/SettingsContentPane.kt
+index a419a438..61099c0b 100644
+--- a/feature/settings/src/main/java/com/streamvault/feature/settings/presentation/SettingsContentPane.kt
++++ b/feature/settings/src/main/java/com/streamvault/feature/settings/presentation/SettingsContentPane.kt
+@@ -69,7 +69,8 @@ public fun SettingsContentPane(
+     onPageChanged: (SettingsPage?) -> Unit = {},
+     categorySelectionId: Long = 0L,
+     openOpenSubtitlesSignIn: Boolean = false,
+-    onCloseApp: () -> Unit = {}
++    onCloseApp: () -> Unit = {},
++    privacyContent: (@Composable () -> Unit)? = null,
+ ) {
+     val category = SettingsCategory.fromId(dialogState.selectedCategory)
+     var page by rememberSaveable(category.legacyId) { mutableStateOf<SettingsPage?>(null) }
+@@ -395,6 +396,9 @@ public fun SettingsContentPane(
+                             targetFocusModifier = searchTargetModifier,
+                         )
+                     } else if (dialogState.selectedCategory == 3) {
++                        if (privacyContent != null) {
++                            item(key = "wireguard") { privacyContent() }
++                        }
+                         settingsPrivacySection(
+                             uiState = uiState,
+                             onToggleIncognitoMode = viewModel::toggleIncognitoMode,
+diff --git a/feature/settings/src/main/java/com/streamvault/feature/settings/presentation/SettingsScreen.kt b/feature/settings/src/main/java/com/streamvault/feature/settings/presentation/SettingsScreen.kt
+index 5b029dc2..8a0dee9b 100644
+--- a/feature/settings/src/main/java/com/streamvault/feature/settings/presentation/SettingsScreen.kt
++++ b/feature/settings/src/main/java/com/streamvault/feature/settings/presentation/SettingsScreen.kt
+@@ -64,7 +64,8 @@ public fun SettingsScreen(
+     openOpenSubtitlesSignIn: Boolean = false,
+     openTrakt: Boolean = false,
+     onCloseApp: () -> Unit = {},
+-    viewModel: SettingsViewModel = hiltViewModel()
++    viewModel: SettingsViewModel = hiltViewModel(),
++    privacyContent: (@Composable () -> Unit)? = null,
+ ) {
+     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+     DisposableEffect(Unit) { onDispose { viewModel.stopEpgPhoneAdd() } }
+@@ -640,6 +641,7 @@ public fun SettingsScreen(
+                     context = context,
+                     appVersionLabel = "${platformHost.buildInfo.versionName} (${platformHost.buildInfo.versionCode})",
+                     onCloseApp = onCloseApp,
++                    privacyContent = privacyContent,
+                     openOpenSubtitlesSignIn = openOpenSubtitlesSignInPending,
+                     screenLabels = screenLabels,
+                     dialogState = dialogState,
+diff --git a/gradle/libs.versions.toml b/gradle/libs.versions.toml
+index 7c83e06d..28053f3f 100644
+--- a/gradle/libs.versions.toml
++++ b/gradle/libs.versions.toml
+@@ -53,6 +53,7 @@ libtorrent = "2.1.0-38"
+ 
+ [libraries]
+ kotlin-stdlib = { group = "org.jetbrains.kotlin", name = "kotlin-stdlib", version.ref = "kotlin" }
++wireguard-tunnel = { group = "com.wireguard.android", name = "tunnel", version = "1.0.20260102" }
+ # Compose BOM
+ compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "compose-bom" }
+ compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
+diff --git a/player/src/main/java/com/streamvault/player/Media3PlayerEngine.kt b/player/src/main/java/com/streamvault/player/Media3PlayerEngine.kt
+index b2bdda9d..0c87c5d3 100644
+--- a/player/src/main/java/com/streamvault/player/Media3PlayerEngine.kt
++++ b/player/src/main/java/com/streamvault/player/Media3PlayerEngine.kt
+@@ -346,6 +346,9 @@ class Media3PlayerEngine @Inject constructor(
+     override val renderSurfaceType: StateFlow<PlayerRenderSurfaceType> = _renderSurfaceType.asStateFlow()
+     private var lastPlaybackSupportSnapshotAtMs = 0L
+ 
++    private val playbackNetworkPolicies = okHttpClient.interceptors
++        .filterIsInstance<com.streamvault.player.playback.PlaybackNetworkPolicy>()
++
+     private val liveTimeshiftManager = DefaultLiveTimeshiftManager(context, okHttpClient)
+     private val timeshiftCleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+     private var timeshiftCleanupJob: Job? = null
+@@ -490,8 +493,27 @@ class Media3PlayerEngine @Inject constructor(
+         }
+     }
+ 
++    private fun checkPlaybackNetwork(streamInfo: StreamInfo): Boolean {
++        return try {
++            val uri = android.net.Uri.parse(streamInfo.url)
++            playbackNetworkPolicies.forEach { it.checkPlayback(uri) }
++            true
++        } catch (error: java.io.IOException) {
++            stop()
++            _error.tryEmit(PlayerError.SourceError(error.message.orEmpty()))
++            false
++        }
++    }
++
+     private fun startEngineCollectors() {
+         if (isDisposed) return
++        playbackNetworkPolicies.forEach { policy ->
++            scope.launch {
++                policy.changes.collectLatest {
++                    lastStreamInfo?.let { checkPlaybackNetwork(it) }
++                }
++            }
++        }
+         scope.launch {
+             liveTimeshiftManager.state.collectLatest {
+                 syncTimeshiftState()
+@@ -689,6 +711,7 @@ class Media3PlayerEngine @Inject constructor(
+     override fun renewStreamUrl(streamInfo: StreamInfo) {
+         if (ensureNotDisposed("renewStreamUrl")) return
+         val player = exoPlayer ?: return
++        if (!checkPlaybackNetwork(streamInfo)) return
+         retryJob?.cancel()
+         retryJob = null
+         retryGeneration++
+@@ -1231,6 +1254,7 @@ class Media3PlayerEngine @Inject constructor(
+             playWhenReady = player.playWhenReady
+         )
+ 
++        if (!checkPlaybackNetwork(streamInfo)) return
+         val (_, mainMediaSource) = mediaSourceFactory.create(
+             streamInfo = streamInfo,
+             resolvedStreamType = currentResolvedStreamType,
+@@ -1284,7 +1308,10 @@ class Media3PlayerEngine @Inject constructor(
+             subtitleSource = subtitle.source
+         )
+         val subtitleMediaSource = buildExternalSubtitleMediaSource(
+-            dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(context),
++            dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(
++                context,
++                androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(okHttpClient)
++            ),
+             configuration = subtitleConfiguration
+         )
+         return androidx.media3.exoplayer.source.MergingMediaSource(mainMediaSource, subtitleMediaSource)
+@@ -1485,6 +1512,7 @@ class Media3PlayerEngine @Inject constructor(
+         seekPositionMs: Long?,
+         autoPlay: Boolean
+     ) {
++        if (!checkPlaybackNetwork(streamInfo)) return
+         clearAdaptiveDecodePressure()
+         preloadWindowManager?.updateForegroundPlayback(PlaybackState.BUFFERING, false, 0L, true)
+         retryJob?.cancel()
+diff --git a/player/src/main/java/com/streamvault/player/playback/PlaybackNetworkPolicy.kt b/player/src/main/java/com/streamvault/player/playback/PlaybackNetworkPolicy.kt
+new file mode 100644
+index 00000000..8b4f152d
+--- /dev/null
++++ b/player/src/main/java/com/streamvault/player/playback/PlaybackNetworkPolicy.kt
+@@ -0,0 +1,10 @@
++package com.streamvault.player.playback
++
++import android.net.Uri
++
++/** Optional protection supplied by the application; ordinary players are unchanged. */
++interface PlaybackNetworkPolicy {
++    val blocksExternalPlayback: Boolean
++    val changes: kotlinx.coroutines.flow.Flow<Long>
++    fun checkPlayback(uri: Uri)
++}
+diff --git a/player/src/main/java/com/streamvault/player/playback/PlayerDataSourceFactoryProvider.kt b/player/src/main/java/com/streamvault/player/playback/PlayerDataSourceFactoryProvider.kt
+index c800ae00..3c17d013 100644
+--- a/player/src/main/java/com/streamvault/player/playback/PlayerDataSourceFactoryProvider.kt
++++ b/player/src/main/java/com/streamvault/player/playback/PlayerDataSourceFactoryProvider.kt
+@@ -61,6 +61,9 @@ class PlayerDataSourceFactoryProvider(
+         vodHttpProtocolMode: VodHttpProtocolMode = VodHttpProtocolMode.COMPATIBILITY_HTTP1,
+         preload: Boolean = false
+     ): Pair<PlayerTimeoutProfile, DataSource.Factory> {
++        baseClient.interceptors.filterIsInstance<PlaybackNetworkPolicy>().forEach {
++            it.checkPlayback(android.net.Uri.parse(streamInfo.url))
++        }
+         val profile = PlayerTimeoutProfile.resolve(streamInfo, resolvedStreamType, preload)
+         val headers = effectivePlaybackRequestProperties(
+             headers = streamInfo.headers,
+@@ -154,7 +157,7 @@ class PlayerDataSourceFactoryProvider(
+                 .connectTimeout(profile.connectTimeoutMs, TimeUnit.MILLISECONDS)
+                 .readTimeout(profile.readTimeoutMs, TimeUnit.MILLISECONDS)
+                 .writeTimeout(profile.writeTimeoutMs, TimeUnit.MILLISECONDS)
+-                .dns(PlayerDnsPolicy.healthAwareDns(port = port, healthStore = addressHealthStore))
++                .dns(PlayerDnsPolicy.healthAwareDns(port = port, healthStore = addressHealthStore, delegate = baseClient.dns))
+                 .eventListener(PlayerAddressHealthEventListener(addressHealthStore))
+                 .apply {
+                     if (forceHttp1) {
+@@ -209,7 +212,7 @@ class PlayerDataSourceFactoryProvider(
+     private fun StreamInfo.httpProxy(): Proxy? {
+         val host = proxyHost.trim().takeIf { it.isNotBlank() } ?: return null
+         val port = proxyPort ?: return null
+-        return Proxy(Proxy.Type.HTTP, InetSocketAddress(host, port))
++        return Proxy(Proxy.Type.HTTP, InetSocketAddress.createUnresolved(host, port))
+     }
+ }
+ 
+diff --git a/player/src/main/java/com/streamvault/player/timeshift/LiveTimeshiftManager.kt b/player/src/main/java/com/streamvault/player/timeshift/LiveTimeshiftManager.kt
+index 737dd72a..f9b817ab 100644
+--- a/player/src/main/java/com/streamvault/player/timeshift/LiveTimeshiftManager.kt
++++ b/player/src/main/java/com/streamvault/player/timeshift/LiveTimeshiftManager.kt
+@@ -441,7 +441,7 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
+         private fun StreamInfo.httpProxy(): Proxy? {
+             val host = proxyHost.trim().takeIf { it.isNotBlank() } ?: return null
+             val port = proxyPort ?: return null
+-            return Proxy(Proxy.Type.HTTP, InetSocketAddress(host, port))
++            return Proxy(Proxy.Type.HTTP, InetSocketAddress.createUnresolved(host, port))
+         }
+ 
+         protected fun clearTrackedCall(call: okhttp3.Call) {
+diff --git a/scripts/test-wireguard-phone.cjs b/scripts/test-wireguard-phone.cjs
+new file mode 100644
+index 00000000..4f59314f
+--- /dev/null
++++ b/scripts/test-wireguard-phone.cjs
+@@ -0,0 +1,31 @@
++// Node 18+: node scripts/test-wireguard-phone.cjs
++// Shipped page handlers with DOM adapters; not a browser/device test.
++const fs=require('node:fs'), vm=require('node:vm'), assert=require('node:assert/strict'), path=require('node:path');
++const source=fs.readFileSync(path.join(__dirname,'../app/src/main/java/com/streamvault/app/vpn/WireGuardPairingPage.kt'),'utf8');
++const script=source.split('<script>')[1].split('</script>')[0];
++const fields=Object.fromEntries(['form','file','config','name','send','result'].map(id=>[id,{
++ value:'',files:[],textContent:'',hidden:false,disabled:false,handlers:{},
++ addEventListener(event,handler){this.handlers[event]=handler;}
++}]));
++const requests=[];let ok=true;
++vm.runInNewContext(script,{
++ document:{getElementById:id=>fields[id]},Blob,URLSearchParams,
++ FormData:class{*[Symbol.iterator](){yield ['name',fields.name.value];yield ['config',fields.config.value];yield ['token','test-session'];}},
++ fetch:async(url,options)=>{requests.push(new URLSearchParams(options.body));return {ok,text:async()=>ok?'Profil gespeichert':'Ungültige Konfiguration'};}
++});
++(async()=>{
++ const config='[Interface]\n# Grüße 📺\nPrivateKey = ab+/==\n';
++ fields.file.files=[{name:'Proton.conf',size:Buffer.byteLength(config),text:async()=>config}];
++ await fields.file.handlers.change();
++ assert.equal(fields.config.value,config);assert.equal(fields.name.value,'Proton');
++ await fields.form.handlers.submit({preventDefault(){}});
++ assert.equal(requests[0].get('config'),config);assert.equal(fields.config.value,'');assert.equal(fields.form.hidden,true);
++ fields.form.hidden=false;fields.config.value=config;fields.name.value='Eingefügt';ok=false;
++ await fields.form.handlers.submit({preventDefault(){}});
++ assert.equal(fields.config.value,config);assert.equal(fields.send.disabled,false);assert.equal(fields.form.hidden,false);
++ ok=true;await fields.form.handlers.submit({preventDefault(){}});
++ assert.equal(requests[2].get('name'),'Eingefügt');assert.equal(requests[2].get('config'),config);
++ fields.file.files=[{size:65537}];await fields.file.handlers.change();assert.match(fields.result.textContent,/größer/);
++ fields.config.value='ä'.repeat(32769);await fields.form.handlers.submit({preventDefault(){}});assert.equal(requests.length,3);
++ console.log('PASS: file, paste, UTF-8/key characters, correction after rejection, secret clearing, file/text byte limits');
++})().catch(error=>{console.error(error);process.exitCode=1;});
