@@ -1105,12 +1105,13 @@ index 00000000..33fbe3ba
 +}
 diff --git a/app/src/main/java/com/streamvault/app/vpn/WireGuardConfigPolicy.kt b/app/src/main/java/com/streamvault/app/vpn/WireGuardConfigPolicy.kt
 new file mode 100644
-index 00000000..0bf0a6d5
+index 00000000..684004c7
 --- /dev/null
 +++ b/app/src/main/java/com/streamvault/app/vpn/WireGuardConfigPolicy.kt
-@@ -0,0 +1,55 @@
+@@ -0,0 +1,68 @@
 +package com.streamvault.app.vpn
 +
++import com.wireguard.config.BadConfigException
 +import com.wireguard.config.Config
 +import com.wireguard.config.Interface
 +import java.io.ByteArrayInputStream
@@ -1118,7 +1119,10 @@ index 00000000..0bf0a6d5
 +import java.net.Inet6Address
 +
 +/** Never display parser exception messages: they can contain private keys. */
-+internal class VpnProfileException(val reason: Reason) : Exception() {
++internal class VpnProfileException(
++    val reason: Reason,
++    val diagnosticCode: String? = null,
++) : Exception() {
 +    enum class Reason { INVALID, FULL_TUNNEL, DNS, TOO_LARGE, STORAGE }
 +}
 +
@@ -1136,14 +1140,23 @@ index 00000000..0bf0a6d5
 +        }.joinToString("\n")
 +        val source = try {
 +            Config.parse(ByteArrayInputStream(sanitized.toByteArray(Charsets.UTF_8)))
++        } catch (error: BadConfigException) {
++            // Library exception text may contain credentials. Only expose fixed enum names.
++            throw VpnProfileException(
++                VpnProfileException.Reason.INVALID,
++                "${error.section.name}/${error.location.name}/${error.reason.name}",
++            )
 +        } catch (_: Exception) {
-+            throw VpnProfileException(VpnProfileException.Reason.INVALID)
++            throw VpnProfileException(VpnProfileException.Reason.INVALID, "CONFIG/PARSE_FAILED")
 +        }
 +        val iface = source.`interface`
 +        val peer = source.peers.singleOrNull()
 +            ?: throw VpnProfileException(VpnProfileException.Reason.FULL_TUNNEL)
-+        if (iface.addresses.isEmpty() || !peer.endpoint.isPresent) {
-+            throw VpnProfileException(VpnProfileException.Reason.INVALID)
++        if (iface.addresses.isEmpty()) {
++            throw VpnProfileException(VpnProfileException.Reason.INVALID, "INTERFACE/ADDRESS/MISSING_ATTRIBUTE")
++        }
++        if (!peer.endpoint.isPresent) {
++            throw VpnProfileException(VpnProfileException.Reason.INVALID, "PEER/ENDPOINT/MISSING_ATTRIBUTE")
 +        }
 +        if (iface.dnsServers.isEmpty()) throw VpnProfileException(VpnProfileException.Reason.DNS)
 +        val hasV4Default = peer.allowedIps.any { it.mask == 0 && it.address is Inet4Address }
@@ -1593,10 +1606,10 @@ index 00000000..3a291f29
 +}
 diff --git a/app/src/main/java/com/streamvault/app/vpn/WireGuardPairingServer.kt b/app/src/main/java/com/streamvault/app/vpn/WireGuardPairingServer.kt
 new file mode 100644
-index 00000000..a1f336fa
+index 00000000..0f03e39a
 --- /dev/null
 +++ b/app/src/main/java/com/streamvault/app/vpn/WireGuardPairingServer.kt
-@@ -0,0 +1,159 @@
+@@ -0,0 +1,161 @@
 +package com.streamvault.app.vpn
 +
 +import java.io.BufferedInputStream
@@ -1700,13 +1713,15 @@ index 00000000..a1f336fa
 +            try {
 +                save(name, config)
 +            } catch (error: Exception) {
-+                val message = when ((error as? VpnProfileException)?.reason) {
++                val profileError = error as? VpnProfileException
++                val message = when (profileError?.reason) {
 +                    VpnProfileException.Reason.DNS -> "DNS-Server im Abschnitt Interface ergänzen."
 +                    VpnProfileException.Reason.FULL_TUNNEL -> "Ein Peer mit AllowedIPs = 0.0.0.0/0, bei IPv6 zusätzlich ::/0 erforderlich."
 +                    VpnProfileException.Reason.INVALID -> "Ungültige WireGuard-Konfiguration. Bitte eine vollständige .conf-Datei verwenden."
 +                    else -> "Profil konnte nicht gespeichert werden. Konfiguration und Speicher prüfen."
 +                }
-+                respond(output, 400, message); return
++                val diagnostic = profileError?.diagnosticCode?.let { "\n[$it]" }.orEmpty()
++                respond(output, 400, message + diagnostic); return
 +            }
 +            // Invalidate before acknowledging: a second POST must never save twice.
 +            active = false
@@ -2467,10 +2482,10 @@ index 00000000..37c6ca06
 +}
 diff --git a/app/src/test/java/com/streamvault/app/vpn/WireGuardConfigPolicyTest.kt b/app/src/test/java/com/streamvault/app/vpn/WireGuardConfigPolicyTest.kt
 new file mode 100644
-index 00000000..1f242d18
+index 00000000..52ad625e
 --- /dev/null
 +++ b/app/src/test/java/com/streamvault/app/vpn/WireGuardConfigPolicyTest.kt
-@@ -0,0 +1,76 @@
+@@ -0,0 +1,105 @@
 +package com.streamvault.app.vpn
 +
 +import org.junit.Assert.*
@@ -2509,6 +2524,34 @@ index 00000000..1f242d18
 +        WireGuardConfigPolicy.parse(profile(allowed = "0.0.0.0/0"), "test.app")
 +    }
 +
++    @Test fun acceptsProtonAndroidExportWithDualStackAndCommentedIpv6Endpoint() {
++        val protonExport = """
++            [Interface]
++            # Key for Fire TV
++            # VPN Accelerator = on
++            PrivateKey = ${KeyPair().privateKey.toBase64()}
++            Address = 10.2.0.2/32, 2a07:b944::2:2/128
++            DNS = 10.2.0.1, 2a07:b944::2:1
++
++            [Peer]
++            # Proton VPN server
++            PublicKey = ${KeyPair().publicKey.toBase64()}
++            AllowedIPs = 0.0.0.0/0, ::/0
++            Endpoint = 192.0.2.1:51820
++
++            # Alternative IPv6 endpoint
++            # Endpoint = [2001:db8::1]:51820
++            PersistentKeepalive = 25
++        """.trimIndent().replace("\n", "\r\n")
++
++        val config = WireGuardConfigPolicy.parse(protonExport, "com.streamvault.app.debug")
++        assertEquals(setOf("com.streamvault.app.debug"), config.`interface`.includedApplications)
++        assertEquals(2, config.`interface`.addresses.size)
++        assertEquals(2, config.`interface`.dnsServers.size)
++        assertEquals(2, config.peers.single().allowedIps.size)
++        assertEquals("192.0.2.1", config.peers.single().endpoint.get().host)
++    }
++
 +    @Test fun rejectsSplitTunnel() {
 +        reject(profile(allowed = "10.0.0.0/8"), VpnProfileException.Reason.FULL_TUNNEL)
 +    }
@@ -2537,6 +2580,7 @@ index 00000000..1f242d18
 +            fail("Expected invalid key")
 +        } catch (error: VpnProfileException) {
 +            assertEquals(VpnProfileException.Reason.INVALID, error.reason)
++            assertEquals("INTERFACE/PRIVATE_KEY/INVALID_KEY", error.diagnosticCode)
 +            assertNull(error.message)
 +            assertNull(error.cause)
 +        }
@@ -2549,10 +2593,10 @@ index 00000000..1f242d18
 +}
 diff --git a/app/src/test/java/com/streamvault/app/vpn/WireGuardPairingServerTest.kt b/app/src/test/java/com/streamvault/app/vpn/WireGuardPairingServerTest.kt
 new file mode 100644
-index 00000000..da87e1d7
+index 00000000..1a081cd7
 --- /dev/null
 +++ b/app/src/test/java/com/streamvault/app/vpn/WireGuardPairingServerTest.kt
-@@ -0,0 +1,141 @@
+@@ -0,0 +1,151 @@
 +package com.streamvault.app.vpn
 +
 +import java.net.HttpURLConnection
@@ -2633,6 +2677,16 @@ index 00000000..da87e1d7
 +            assertEquals(400, response.first)
 +            assertFalse(response.second.contains("secret"))
 +            assertEquals(200, post(it, config = "corrected").first)
++        }
++    }
++
++    @Test fun reportsTheRejectedFieldWithoutReturningItsValue() {
++        val secret = "private-key-test-value"
++        server(save = { _, config -> WireGuardConfigPolicy.parse(config, "test.app") }).use {
++            val (code, message) = post(it, config = "[Interface]\nPrivateKey = $secret\n")
++            assertEquals(400, code)
++            assertTrue(message.contains("[INTERFACE/PRIVATE_KEY/INVALID_KEY]"))
++            assertFalse(message.contains(secret))
 +        }
 +    }
 +
