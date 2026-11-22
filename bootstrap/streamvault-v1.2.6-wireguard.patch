@@ -751,7 +751,7 @@ index 00000000..53ab0eed
 +)
 diff --git a/app/src/main/java/com/streamvault/app/ui/screens/settings/WireGuardSettingsCard.kt b/app/src/main/java/com/streamvault/app/ui/screens/settings/WireGuardSettingsCard.kt
 new file mode 100644
-index 00000000..d16dad1a
+index 00000000..64248232
 --- /dev/null
 +++ b/app/src/main/java/com/streamvault/app/ui/screens/settings/WireGuardSettingsCard.kt
 @@ -0,0 +1,244 @@
@@ -982,11 +982,11 @@ index 00000000..d16dad1a
 +@Composable
 +private fun WireGuardToggleRow(label: String, hint: String, checked: Boolean,
 +    onToggle: (Boolean) -> Unit, enabled: Boolean = true, modifier: Modifier = Modifier) {
-+    com.streamvault.app.ui.interaction.TvClickableSurface(
++    com.streamvault.core.ui.interaction.TvClickableSurface(
 +        onClick = { if (enabled) onToggle(!checked) },
 +        colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
 +            containerColor = androidx.compose.ui.graphics.Color.Transparent,
-+            focusedContainerColor = com.streamvault.app.ui.theme.Primary.copy(alpha = 0.18f)),
++            focusedContainerColor = com.streamvault.core.ui.theme.Primary.copy(alpha = 0.18f)),
 +        modifier = modifier.fillMaxWidth()
 +    ) {
 +        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically,
